@@ -205,3 +205,28 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# ShortGen - Project specific
+# Output directories (videos and generated content)
+output/
+*.mp4
+*.mov
+*.avi
+*.mkv
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env.local
+.env.*.local
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Temporary files
+*.tmp
+.cache/
