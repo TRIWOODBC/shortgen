@@ -1,11 +1,10 @@
 import asyncio
 import base64
+import io
 import time
 from pathlib import Path
-from typing import List, Optional, Union
+from typing import List, Optional
 from datetime import datetime
-from urllib.parse import urljoin
-import json
 
 import httpx
 from PIL import Image
@@ -24,26 +23,27 @@ class VideoGenerator:
         Args:
             provider: 指定使用的平台
                      "auto" - 自动选择（按优先级：即梦 > Runway > Pika）
-                     "dreamina" - 强制使用即梦
+                     "dreamina" - 强制使用即梦（火山引擎官方 API）
                      "runway" - 强制使用 Runway
                      "pika" - 强制使用 Pika
         """
         config = Config()
-        self.provider = provider
+        self.provider = config.VIDEO_PROVIDER if provider == "auto" else provider
         self.runway_key = config.RUNWAY_API_KEY
         self.pika_key = config.PIKA_API_KEY
-        self.dreamina_session = config.DREAMINA_SESSION_ID
+        self.volc_ak = config.VOLC_ACCESS_KEY
+        self.volc_sk = config.VOLC_SECRET_KEY
         self.proxy = config.HTTP_PROXY or None
         self.output_dir = Path("output/videos")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_provider(self) -> str:
         """确定使用哪个平台"""
-        if self.provider != "auto":
+        if self.provider not in ("auto", ""):
             return self.provider
 
         # 自动选择优先级：即梦 > Runway > Pika
-        if self.dreamina_session:
+        if self.volc_ak and self.volc_sk:
             return "dreamina"
         elif self.runway_key:
             return "runway"
@@ -57,25 +57,19 @@ class VideoGenerator:
         storyboard: Storyboard,
         output_name: str = None
     ) -> List[VideoResult]:
-        """
-        根据分镜脚本生成视频
-
-        策略：
-        1. 优先使用即梦（国内友好，速度快）
-        2. 备选 Runway Gen-3（质量较高）
-        3. 备选 Pika Labs
-        """
+        """根据分镜脚本生成视频"""
         results = []
         provider = self._get_provider()
+
+        print(f"  📡 使用平台: {provider}")
 
         for scene in storyboard.scenes:
             print(f"  🎬 正在生成场景 {scene.scene_number}/{len(storyboard.scenes)}...")
 
             try:
                 if provider == "dreamina":
-                    # 使用即梦生成器
                     dreamina = DreaminaGenerator()
-                    video_path = await dreamina._generate_with_dreamina(scene, output_name)
+                    video_path = await dreamina.generate_video(scene, output_name)
                 elif provider == "runway":
                     video_path = await self._generate_with_runway(scene, output_name)
                 elif provider == "pika":
@@ -104,13 +98,7 @@ class VideoGenerator:
         return results
 
     async def _generate_with_runway(self, scene: Scene, output_prefix: str = None) -> str:
-        """
-        使用 Runway Gen-3 生成视频
-
-        注意：Runway API 可能有变化，这里提供基础实现框架
-        请参考最新官方文档：https://docs.runwayml.com/
-        """
-        # Runway API 端点（可能需要根据实际文档调整）
+        """使用 Runway Gen-3 生成视频"""
         base_url = "https://api.runwayml.com/v1"
 
         async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
@@ -119,11 +107,10 @@ class VideoGenerator:
                 "Content-Type": "application/json"
             }
 
-            # 1. 提交生成任务
             payload = {
                 "prompt": scene.prompt,
-                "duration": min(scene.duration, 10),  # Runway 通常限制最大 10 秒
-                "ratio": "9:16"  # 短视频常用竖屏比例
+                "duration": min(scene.duration, 10),
+                "ratio": "9:16"
             }
 
             response = await client.post(
@@ -140,10 +127,8 @@ class VideoGenerator:
 
             print(f"    ⏳ 任务已提交: {task_id}，等待生成...")
 
-            # 2. 轮询等待完成
             video_url = await self._poll_runway_task(client, headers, base_url, task_id)
 
-            # 3. 下载视频
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             prefix = output_prefix or f"scene_{scene.scene_number}"
             output_path = self.output_dir / f"{prefix}_{timestamp}_scene{scene.scene_number}.mp4"
@@ -181,11 +166,7 @@ class VideoGenerator:
         raise TimeoutError("等待视频生成超时")
 
     async def _generate_with_pika(self, scene: Scene, output_prefix: str = None) -> str:
-        """
-        使用 Pika Labs 生成视频
-
-        参考：https://pika.art/
-        """
+        """使用 Pika Labs 生成视频"""
         base_url = "https://api.pika.art/v1"
 
         async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
@@ -194,10 +175,9 @@ class VideoGenerator:
                 "Content-Type": "application/json"
             }
 
-            # 提交生成任务
             payload = {
                 "prompt": scene.prompt,
-                "duration": min(scene.duration, 3),  # Pika 免费版通常 3 秒
+                "duration": min(scene.duration, 3),
                 "aspect_ratio": "9:16"
             }
 
@@ -212,10 +192,8 @@ class VideoGenerator:
             generation_id = data.get("id")
             print(f"    ⏳ Pika 任务已提交: {generation_id}")
 
-            # 轮询等待
             video_url = await self._poll_pika_task(client, headers, base_url, generation_id)
 
-            # 下载
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             prefix = output_prefix or f"scene_{scene.scene_number}"
             output_path = self.output_dir / f"{prefix}_{timestamp}_scene{scene.scene_number}.mp4"
@@ -252,21 +230,6 @@ class VideoGenerator:
 
         raise TimeoutError("等待 Pika 视频生成超时")
 
-    async def generate_with_image_prompt(
-        self,
-        image_path: str,
-        prompt: str,
-        output_name: str = None
-    ) -> str:
-        """
-        使用图片 + 提示词生成视频（Img2Video）
-
-        部分平台支持从图片开始生成视频
-        """
-        # 实现 Img2Video 逻辑
-        # 这里需要根据具体 API 文档实现
-        raise NotImplementedError("Img2Video 功能待实现")
-
     async def _download_file(self, url: str, output_path: Path):
         """下载文件"""
         async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
@@ -277,268 +240,271 @@ class VideoGenerator:
         print(f"    ✅ 已保存: {output_path}")
 
 
-class DreaminaGenerator(VideoGenerator):
+class DreaminaGenerator:
     """
-    即梦 (Dreamina) 视频生成器
+    即梦 (Dreamina) 视频生成器 — 基于火山引擎官方 API
 
-    即梦是字节跳动旗下的 AI 视频生成工具，支持文生视频和图生视频。
-    由于即梦目前没有公开 API，需要通过 Cookie/Session 方式调用。
+    使用火山引擎 VisualService SDK 调用即梦 AI 视频生成能力。
 
-    获取认证信息：
-    1. 登录 https://jimeng.jianying.com/
-    2. 打开浏览器开发者工具 (F12)
-    3. 在 Application/Storage -> Cookies 中找到以下字段：
-       - sessionid
-       - uid
-       - did
-    4. 将这些值配置到 .env 文件中
+    前置条件：
+    1. 注册火山引擎账号: https://console.volcengine.com/
+    2. 开通「即梦AI」或「智能视觉」服务
+    3. 获取 AccessKey (AK) 和 SecretKey (SK)
+    4. 将 AK/SK 配置到 .env 文件中
+
+    支持的 req_key:
+    - jimeng_t2v_v30: 文生视频 3.0（标准版）
+    - jimeng_ti2v_v30_pro: 图生视频 3.0 Pro
+    - jimeng_t2v_v30_pro: 文生视频 3.0 Pro
     """
+
+    # 视频生成宽高对照表 (竖屏 9:16)
+    ASPECT_RATIOS = {
+        "9:16": (720, 1280),
+        "16:9": (1280, 720),
+        "1:1": (1024, 1024),
+        "4:3": (1024, 768),
+        "3:4": (768, 1024),
+    }
 
     def __init__(self):
-        super().__init__()
         config = Config()
-        self.session_id = getattr(config, 'DREAMINA_SESSION_ID', '')
-        self.uid = getattr(config, 'DREAMINA_UID', '')
-        self.did = getattr(config, 'DREAMINA_DID', '')
-        self.base_url = "https://jimeng.jianying.com"
+        self.ak = config.VOLC_ACCESS_KEY
+        self.sk = config.VOLC_SECRET_KEY
+        self.model = config.JIMENG_MODEL
+        self.proxy = config.HTTP_PROXY or None
+        self.output_dir = Path("output/videos")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    async def generate_from_storyboard(
+        if not self.ak or not self.sk:
+            raise ValueError(
+                "缺少火山引擎认证信息，请配置 VOLC_ACCESS_KEY 和 VOLC_SECRET_KEY\n"
+                "获取方式: https://console.volcengine.com/ → 密钥管理"
+            )
+
+        # 初始化火山引擎 VisualService
+        self._init_visual_service()
+
+    def _init_visual_service(self):
+        """初始化火山引擎 Visual Service SDK"""
+        try:
+            from volcengine.visual.VisualService import VisualService
+        except ImportError:
+            raise ImportError(
+                "请先安装火山引擎 SDK: pip install volcengine\n"
+                "详情参考: https://github.com/volcengine/volc-sdk-python"
+            )
+
+        self.visual_service = VisualService()
+        self.visual_service.set_ak(self.ak)
+        self.visual_service.set_sk(self.sk)
+
+    async def generate_video(
         self,
-        storyboard: Storyboard,
-        output_name: str = None
-    ) -> List[VideoResult]:
-        """根据分镜脚本使用即梦生成视频"""
-        results = []
+        scene: Scene,
+        output_prefix: str = None,
+        aspect_ratio: str = "9:16"
+    ) -> str:
+        """
+        文生视频 (Text-to-Video)
 
-        for scene in storyboard.scenes:
-            print(f"  🎬 [即梦] 正在生成场景 {scene.scene_number}/{len(storyboard.scenes)}...")
+        Args:
+            scene: 分镜场景
+            output_prefix: 输出文件名前缀
+            aspect_ratio: 画面比例，默认 9:16（竖屏）
 
-            try:
-                video_path = await self._generate_with_dreamina(scene, output_name)
+        Returns:
+            视频文件路径
+        """
+        # 根据时长选择帧数: 121帧=5秒, 241帧=10秒
+        frames = 241 if scene.duration > 5 else 121
 
-                results.append(VideoResult(
-                    scene_number=scene.scene_number,
-                    file_path=video_path,
-                    status="success"
-                ))
-
-            except Exception as e:
-                print(f"    ❌ 场景 {scene.scene_number} 生成失败: {e}")
-                results.append(VideoResult(
-                    scene_number=scene.scene_number,
-                    file_path="",
-                    status="failed",
-                    error_message=str(e)
-                ))
-
-            # 避免请求过快
-            await asyncio.sleep(3)
-
-        return results
-
-    async def _generate_with_dreamina(self, scene: Scene, output_prefix: str = None) -> str:
-        """调用即梦 API 生成视频"""
-
-        if not all([self.session_id, self.uid, self.did]):
-            raise ValueError("缺少即梦认证信息，请配置 DREAMINA_SESSION_ID, DREAMINA_UID, DREAMINA_DID")
-
-        headers = {
-            "Content-Type": "application/json",
-            "Cookie": f"sessionid={self.session_id}; uid={self.uid}; did={self.did}",
-            "Referer": "https://jimeng.jianying.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+        # 构造请求参数（按官方文档）
+        form = {
+            "req_key": self.model,
+            "prompt": scene.prompt,
+            "frames": frames,
+            "aspect_ratio": aspect_ratio,
+            "seed": -1,  # 随机种子
         }
 
-        async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
-            # 1. 提交生成任务
-            # 注意：以下 API 端点和参数格式可能需要根据实际接口调整
-            payload = {
-                "prompt": scene.prompt,
-                "duration": min(int(scene.duration), 10),  # 即梦通常支持 5-10 秒
-                "aspect_ratio": "9:16",  # 竖屏
-                "model": "jimeng-2.0"  # 模型版本
-            }
+        # 1. 提交任务
+        task_id = await self._submit_task(form)
+        print(f"    ⏳ 即梦任务已提交: {task_id}，等待生成...")
 
-            # 提交任务
-            submit_url = f"{self.base_url}/api/v1/video/generate"
+        # 2. 轮询等待结果
+        video_url = await self._poll_task(task_id)
 
-            try:
-                response = await client.post(
-                    submit_url,
-                    headers=headers,
-                    json=payload
-                )
-                response.raise_for_status()
-                data = response.json()
+        # 3. 下载视频
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        prefix = output_prefix or f"scene_{scene.scene_number}"
+        output_path = self.output_dir / f"{prefix}_{timestamp}_scene{scene.scene_number}.mp4"
 
-            except httpx.HTTPError as e:
-                # 如果上述端点失败，使用模拟响应（实际使用时需要逆向正确的API）
-                print(f"    ⚠️ API 调用失败，尝试备用方案: {e}")
-                data = await self._try_alternative_api(client, headers, payload)
+        await self._download_file(video_url, output_path)
 
-            task_id = data.get("data", {}).get("task_id") or data.get("task_id")
-            if not task_id:
-                raise ValueError(f"未能获取任务ID: {data}")
+        return str(output_path)
 
-            print(f"    ⏳ 即梦任务已提交: {task_id}，等待生成...")
-
-            # 2. 轮询等待完成
-            video_url = await self._poll_dreamina_task(client, headers, task_id)
-
-            # 3. 下载视频
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            prefix = output_prefix or f"scene_{scene.scene_number}"
-            output_path = self.output_dir / f"{prefix}_{timestamp}_scene{scene.scene_number}.mp4"
-
-            await self._download_file(video_url, output_path)
-
-            return str(output_path)
-
-    async def _try_alternative_api(self, client: httpx.AsyncClient, headers: dict, payload: dict) -> dict:
-        """
-        尝试备用 API 端点
-        即梦可能使用不同的端点格式
-        """
-        # 尝试其他可能的端点
-        alternative_urls = [
-            f"{self.base_url}/api/video/generate",
-            f"{self.base_url}/api/v2/generation",
-            "https://api.icutool.com/jimeng/generate"  # 第三方中转（如果存在）
-        ]
-
-        for url in alternative_urls:
-            try:
-                response = await client.post(url, headers=headers, json=payload, timeout=10)
-                if response.status_code == 200:
-                    return response.json()
-            except:
-                continue
-
-        raise ValueError("无法找到可用的即梦 API 端点，请检查认证信息或 API 文档")
-
-    async def _poll_dreamina_task(
-        self,
-        client: httpx.AsyncClient,
-        headers: dict,
-        task_id: str,
-        max_retries: int = 60
-    ) -> str:
-        """轮询即梦任务状态"""
-
-        status_urls = [
-            f"{self.base_url}/api/v1/video/status",
-            f"{self.base_url}/api/video/status",
-            f"{self.base_url}/api/v1/task/status"
-        ]
-
-        for i in range(max_retries):
-            for status_url in status_urls:
-                try:
-                    response = await client.get(
-                        status_url,
-                        headers=headers,
-                        params={"task_id": task_id},
-                        timeout=10
-                    )
-
-                    if response.status_code != 200:
-                        continue
-
-                    data = response.json()
-
-                    # 解析状态（根据实际响应格式调整）
-                    status = data.get("data", {}).get("status") or data.get("status")
-
-                    if status in ["completed", "success", "done"]:
-                        # 获取视频 URL
-                        video_url = (
-                            data.get("data", {}).get("video_url") or
-                            data.get("data", {}).get("url") or
-                            data.get("video_url")
-                        )
-                        if video_url:
-                            return video_url
-
-                    elif status in ["failed", "error", "fail"]:
-                        error_msg = data.get("data", {}).get("error") or data.get("message", "Unknown error")
-                        raise ValueError(f"即梦生成失败: {error_msg}")
-
-                    # 还在生成中
-                    break
-
-                except httpx.RequestError:
-                    continue
-
-            # 显示进度
-            if i % 6 == 0:  # 每30秒显示一次
-                print(f"    ⏳ 仍在生成中... ({i//12}分钟)")
-
-            await asyncio.sleep(5)
-
-        raise TimeoutError("等待即梦视频生成超时")
-
-    async def generate_with_image(
+    async def generate_video_from_image(
         self,
         image_path: str,
         prompt: str,
-        output_name: str = None
+        output_name: str = None,
+        duration: int = 5
     ) -> str:
         """
-        使用即梦进行图生视频
+        图生视频 (Image-to-Video)
 
         Args:
-            image_path: 图片路径
-            prompt: 视频动作描述
+            image_path: 首帧图片路径
+            prompt: 运动/动作描述
             output_name: 输出文件名
-        """
-        if not all([self.session_id, self.uid, self.did]):
-            raise ValueError("缺少即梦认证信息")
+            duration: 视频时长（秒）
 
-        # 读取图片并转为 base64
+        Returns:
+            视频文件路径
+        """
+        # 读取图片并转换为 base64
         image = Image.open(image_path)
-        import io
         buffer = io.BytesIO()
         image.save(buffer, format='PNG')
         img_base64 = base64.b64encode(buffer.getvalue()).decode()
 
-        headers = {
-            "Content-Type": "application/json",
-            "Cookie": f"sessionid={self.session_id}; uid={self.uid}; did={self.did}",
-            "Referer": "https://jimeng.jianying.com/",
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
-        }
-
-        payload = {
-            "image": f"data:image/png;base64,{img_base64}",
+        # 构造请求参数
+        form = {
+            "req_key": "jimeng_ti2v_v30_pro",  # 图生视频使用 Pro 版
             "prompt": prompt,
-            "duration": 5,
-            "aspect_ratio": "9:16",
-            "model": "jimeng-2.0"
+            "image_url": f"data:image/png;base64,{img_base64}",
+            "duration": min(duration, 10),
+            "seed": -1,
         }
 
-        async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
-            response = await client.post(
-                f"{self.base_url}/api/v1/video/img2video",
-                headers=headers,
-                json=payload
+        # 1. 提交任务
+        task_id = await self._submit_task(form)
+        print(f"    ⏳ 即梦图生视频任务: {task_id}")
+
+        # 2. 轮询等待结果
+        video_url = await self._poll_task(task_id)
+
+        # 3. 下载视频
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = self.output_dir / f"{output_name or 'img2video'}_{timestamp}.mp4"
+
+        await self._download_file(video_url, output_path)
+
+        return str(output_path)
+
+    async def _submit_task(self, form: dict) -> str:
+        """
+        提交视频生成任务
+
+        使用 CVSync2AsyncSubmitTask 接口异步提交任务。
+        """
+        # SDK 使用同步调用，放到线程池中执行以兼容 async
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(
+            None, self.visual_service.cv_sync2async_submit_task, form
+        )
+
+        # 检查响应（火山引擎成功码为 10000）
+        code = resp.get("code", -1)
+        if code not in (0, 10000):
+            message = resp.get("message", "未知错误")
+            raise ValueError(f"即梦任务提交失败 (code={code}): {message}")
+
+        task_id = resp.get("data", {}).get("task_id")
+        if not task_id:
+            raise ValueError(f"未能获取任务ID，响应: {resp}")
+
+        return task_id
+
+    async def _poll_task(
+        self,
+        task_id: str,
+        max_wait_seconds: int = 600,
+        poll_interval: int = 5
+    ) -> str:
+        """
+        轮询任务状态直到完成
+
+        Args:
+            task_id: 任务 ID
+            max_wait_seconds: 最大等待时间（秒），默认 10 分钟
+            poll_interval: 轮询间隔（秒），默认 5 秒
+
+        Returns:
+            视频 URL
+
+        Status 说明：
+            - in_queue: 排队中
+            - generating: 生成中
+            - done: 完成（需检查 code 判断成功/失败）
+            - not_found: 任务不存在
+            - expired: 任务过期（超过 12 小时）
+        """
+        form = {
+            "req_key": self.model,
+            "task_id": task_id,
+        }
+
+        start_time = time.time()
+        poll_count = 0
+
+        while (time.time() - start_time) < max_wait_seconds:
+            # SDK 同步调用放到线程池
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None, self.visual_service.cv_sync2async_get_result, form
             )
+
+            code = resp.get("code", -1)
+            data = resp.get("data", {})
+            status = data.get("status", "")
+            message = resp.get("message", "")
+
+            if status == "done":
+                if code in (0, 10000):
+                    # 生成成功，提取视频 URL
+                    video_url = (
+                        data.get("video_url") or
+                        data.get("resp_data", {}).get("video_url") or
+                        # 有些版本结果在 video_urls 列表中
+                        (data.get("video_urls", [None]) or [None])[0]
+                    )
+                    if video_url:
+                        return video_url
+                    else:
+                        raise ValueError(f"任务完成但未找到视频 URL，响应: {resp}")
+                else:
+                    raise ValueError(f"即梦生成失败 (code={code}): {message}")
+
+            elif status in ("not_found", "expired"):
+                raise ValueError(f"任务异常 (status={status}): {message}")
+
+            elif status in ("in_queue", "generating", ""):
+                poll_count += 1
+                elapsed = int(time.time() - start_time)
+
+                # 每 30 秒打印一次进度
+                if poll_count % 6 == 0:
+                    print(f"    ⏳ 仍在生成中... (已等待 {elapsed} 秒)")
+
+                await asyncio.sleep(poll_interval)
+
+            else:
+                # 未知状态，继续等待
+                poll_count += 1
+                await asyncio.sleep(poll_interval)
+
+        raise TimeoutError(f"等待即梦视频生成超时（已等待 {max_wait_seconds} 秒）")
+
+    async def _download_file(self, url: str, output_path: Path):
+        """下载视频文件"""
+        async with httpx.AsyncClient(proxies=self.proxy, timeout=120) as client:
+            response = await client.get(url)
             response.raise_for_status()
-            data = response.json()
+            output_path.write_bytes(response.content)
 
-            task_id = data.get("data", {}).get("task_id") or data.get("task_id")
-            if not task_id:
-                raise ValueError(f"未能获取任务ID: {data}")
-
-            print(f"    ⏳ 即梦图生视频任务: {task_id}")
-
-            video_url = await self._poll_dreamina_task(client, headers, task_id)
-
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            output_path = self.output_dir / f"{output_name or 'img2video'}_{timestamp}.mp4"
-
-            await self._download_file(video_url, output_path)
-
-            return str(output_path)
+        print(f"    ✅ 已保存: {output_path}")
 
 
 class MockVideoGenerator(VideoGenerator):

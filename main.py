@@ -11,13 +11,12 @@ import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
+load_dotenv()
 
 from src.storyboard import StoryboardGenerator
 from src.trending import TrendingFetcher
 from src.video_gen import VideoGenerator
 from src.config import Config
-
-load_dotenv()
 
 
 def setup_directories():

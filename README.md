@@ -8,7 +8,7 @@ AI 驱动的短视频自动化生产工具，支持两种模式：
 
 - 🎬 **智能分镜**：使用 Claude AI 将剧情转换为专业分镜脚本
 - 🔥 **热点追踪**：自动获取微博/知乎/百度等平台热点
-- 🎥 **视频生成**：支持 即梦、Runway Gen-3、Pika Labs 等视频生成平台
+- 🎥 **视频生成**：支持即梦（火山引擎官方 API）、Runway Gen-3、Pika Labs 等平台
 - 🇨🇳 **国内优化**：即梦平台无需翻墙，更适合国内用户
 - 📱 **竖屏优化**：默认 9:16 比例，适合短视频平台
 - 🔄 **批量处理**：支持多场景批量生成
@@ -51,7 +51,7 @@ cp .env.example .env
 必需配置：
 - `ANTHROPIC_API_KEY` - Claude API 密钥
 - **视频生成（三选一）**：
-  - **即梦（推荐国内用户）**: `DREAMINA_SESSION_ID`, `DREAMINA_UID`, `DREAMINA_DID`
+  - **即梦（推荐国内用户）**: `VOLC_ACCESS_KEY` + `VOLC_SECRET_KEY`
   - Runway: `RUNWAY_API_KEY`
   - Pika: `PIKA_API_KEY`
 
@@ -119,32 +119,33 @@ python main.py -t
 当前支持：
 
 | 平台 | 特点 | 配置项 | 适用场景 |
-|-----|------|-------|---------|
-| **即梦 (Dreamina)** ⭐ | 字节出品，国内直连，速度快 | `DREAMINA_SESSION_ID` / `UID` / `DID` | 国内用户首选 |
+|-----|------|-------|---------||
+| **即梦 (Dreamina)** ⭐ | 字节出品，火山引擎官方 API | `VOLC_ACCESS_KEY` + `VOLC_SECRET_KEY` | 国内用户首选 |
 | Runway Gen-3 | 质量最高，支持 10 秒 | `RUNWAY_API_KEY` | 追求画质 |
 | Pika Labs | 免费额度多，速度快 | `PIKA_API_KEY` | 快速测试 |
 
 **优先级**：如果同时配置了多个，默认优先使用即梦（国内用户最友好）。
 
-#### 即梦 (Dreamina) 配置方法
+#### 即梦 (Dreamina) 配置方法 — 火山引擎官方 API
 
-由于即梦目前没有开放官方 API，需要通过 Cookie 方式调用：
+即梦视频生成通过火山引擎官方 API 调用，稳定可靠：
 
-1. 打开浏览器，访问 https://jimeng.jianying.com/
-2. 登录你的账号
-3. 按 `F12` 打开开发者工具 → Application/应用 → Cookies
-4. 找到并复制以下三个值：
-   - `sessionid`
-   - `uid`
-   - `did`
-5. 填入 `.env` 文件：
+1. 注册[火山引擎账号](https://console.volcengine.com/)
+2. 在控制台开通「即梦AI」或「智能视觉」服务
+3. 进入「密钥管理」获取 AccessKey (AK) 和 SecretKey (SK)
+4. 填入 `.env` 文件：
    ```env
-   DREAMINA_SESSION_ID=xxx
-   DREAMINA_UID=xxx
-   DREAMINA_DID=xxx
+   VOLC_ACCESS_KEY=your_access_key
+   VOLC_SECRET_KEY=your_secret_key
    ```
 
-6. **指定使用即梦**（可选）：
+5. **指定视频模型**（可选）：
+   ```env
+   # 可选: jimeng_t2v_v30（标准版）, jimeng_t2v_v30_pro（Pro 版）
+   JIMENG_MODEL=jimeng_t2v_v30
+   ```
+
+6. **指定使用即梦**（可选，默认自动选择）：
    ```env
    VIDEO_PROVIDER=dreamina
    ```
@@ -152,7 +153,7 @@ python main.py -t
 ### 热点数据源
 
 | 数据源 | 特点 | 是否需要 API Key |
-|-------|------|-----------------|
+|-------|------|-----------------||
 | NewsAPI | 国际新闻，分类详细 | 需要 `NEWS_API_KEY` |
 | 微博热搜 | 国内热点，实时性强 | 不需要 |
 | 知乎热榜 | 深度话题讨论 | 不需要 |
@@ -171,9 +172,9 @@ HTTPS_PROXY=http://127.0.0.1:7890
 
 ## 开发计划
 
-- [x] 添加即梦 (Dreamina) 支持
+- [x] 添加即梦 (Dreamina) 支持 — 火山引擎官方 API
 - [ ] 添加可灵支持
-- [x] 支持图片生成视频（Img2Video）- 即梦已实现
+- [x] 支持图片生成视频（Img2Video）
 - [ ] 视频自动剪辑合并
 - [ ] 添加背景音乐和配音
 - [ ] 支持字幕生成
@@ -181,12 +182,12 @@ HTTPS_PROXY=http://127.0.0.1:7890
 
 ## 注意事项
 
-1. **API 费用**：视频生成 API 通常按秒计费，请注意用量
+1. **API 费用**：视频生成 API 按使用量计费，请注意用量
 2. **生成时间**：单个场景视频生成可能需要 1-5 分钟
 3. **网络要求**：
    - 即梦：国内直连，无需翻墙 ⭐
    - Runway/Pika：可能需要海外网络
-4. **Cookie 有效期**：即梦的 `sessionid` 可能会过期，需要定期更新
+4. **API 配额**：火山引擎有调用频率限制（QPS），请合理控制并发
 5. **内容审核**：生成的视频需遵守平台内容规范
 
 ## License

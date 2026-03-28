@@ -2,7 +2,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from anthropic import Anthropic
+from openai import OpenAI
 
 from .models import Storyboard, Scene, TrendingItem
 from .config import Config
@@ -42,11 +42,16 @@ GENERATE_PLOT_PROMPT = """你是一个短视频编剧。根据以下热点新闻
 
 
 class StoryboardGenerator:
-    """分镜脚本生成器"""
+    """分镜脚本生成器 — 支持 DeepSeek / GLM / Kimi / OpenAI 等"""
 
     def __init__(self):
         config = Config()
-        self.client = Anthropic(api_key=config.ANTHROPIC_API_KEY)
+        self.model = config.get_llm_model()
+        self.client = OpenAI(
+            api_key=config.LLM_API_KEY,
+            base_url=config.get_llm_base_url(),
+        )
+        print(f"  🤖 LLM: {config.LLM_PROVIDER} ({self.model})")
 
     async def generate(self, plot: str) -> Storyboard:
         """根据剧情生成分镜脚本"""
@@ -77,17 +82,20 @@ class StoryboardGenerator:
 - 每个场景时长3-8秒
 - 总时长控制在15-45秒
 - 提示词必须是英文，且详细具体
-- 场景之间要有连贯性"""
+- 场景之间要有连贯性
+- 只输出JSON，不要输出其他内容"""
 
-        response = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+        response = self.client.chat.completions.create(
+            model=self.model,
             max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": prompt}]
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ]
         )
 
         # 解析JSON响应
-        content = response.content[0].text
+        content = response.choices[0].message.content
 
         # 提取JSON（可能被 ```json 包围）
         if "```json" in content:
@@ -114,13 +122,13 @@ class StoryboardGenerator:
             description=trend.description or "暂无描述"
         )
 
-        response = self.client.messages.create(
-            model="claude-3-5-sonnet-20241022",
+        response = self.client.chat.completions.create(
+            model=self.model,
             max_tokens=1000,
             messages=[{"role": "user", "content": prompt}]
         )
 
-        return response.content[0].text.strip()
+        return response.choices[0].message.content.strip()
 
     def save(self, storyboard: Storyboard, output_name: str = None) -> str:
         """保存分镜脚本到文件"""
