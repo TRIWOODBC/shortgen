@@ -46,7 +46,6 @@ def setup_directories():
         get_output_root() / "audios",
         get_output_root() / "characters",
         get_output_root() / "final",
-        "assets/music"
     ]
     for d in dirs:
         Path(d).mkdir(parents=True, exist_ok=True)
