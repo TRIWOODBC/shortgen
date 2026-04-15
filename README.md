@@ -48,7 +48,7 @@ Implemented:
 
 Partial / still evolving:
 
-- Character consistency is currently strongest at the reference-image stage; not every video provider path fully consumes reference imagery yet
+- Dreamina now preferentially uses generated character reference images for scene video generation, but consistency still depends on provider-side model behavior
 - Audio is merged at a basic workflow level and may still need tighter scene-level timing alignment
 - API integrations depend on external provider stability and quota settings
 
@@ -148,6 +148,8 @@ HTTPS_PROXY=http://127.0.0.1:7890
   2. Runway
   3. Pika
 
+The project now defaults to `dreamina`.
+
 ## Usage
 
 Interactive mode:
@@ -166,6 +168,12 @@ Generate full output:
 
 ```bash
 python main.py -p "一个年轻人独自在深夜的地铁站等车" --full
+```
+
+Explicitly choose a provider:
+
+```bash
+python main.py -p "一个年轻人独自在深夜的地铁站等车" --provider dreamina
 ```
 
 Read plot from file:

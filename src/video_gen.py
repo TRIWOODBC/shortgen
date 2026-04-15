@@ -16,19 +16,19 @@ from .config import Config
 class VideoGenerator:
     """视频生成器 - 支持多个平台"""
 
-    def __init__(self, provider: str = "auto"):
+    def __init__(self, provider: str = "dreamina"):
         """
         初始化视频生成器
 
         Args:
             provider: 指定使用的平台
-                     "auto" - 自动选择（按优先级：即梦 > Runway > Pika）
                      "dreamina" - 强制使用即梦（火山引擎官方 API）
+                     "auto" - 自动选择（按优先级：即梦 > Runway > Pika）
                      "runway" - 强制使用 Runway
                      "pika" - 强制使用 Pika
         """
         config = Config()
-        self.provider = config.VIDEO_PROVIDER if provider == "auto" else provider
+        self.provider = config.VIDEO_PROVIDER if provider in ("auto", "", None) else provider
         self.runway_key = config.RUNWAY_API_KEY
         self.pika_key = config.PIKA_API_KEY
         self.volc_ak = config.VOLC_ACCESS_KEY
@@ -69,7 +69,17 @@ class VideoGenerator:
             try:
                 if provider == "dreamina":
                     dreamina = DreaminaGenerator()
-                    video_path = await dreamina.generate_video(scene, output_name)
+                    reference_image = self._get_reference_image(scene, storyboard)
+                    if reference_image:
+                        print(f"    🖼️ 使用参考图生成场景 {scene.scene_number}")
+                        video_path = await dreamina.generate_video_from_image(
+                            image_path=reference_image,
+                            prompt=scene.prompt,
+                            output_name=self._build_scene_output_prefix(scene, output_name),
+                            duration=max(3, int(round(scene.duration)))
+                        )
+                    else:
+                        video_path = await dreamina.generate_video(scene, output_name)
                 elif provider == "runway":
                     video_path = await self._generate_with_runway(scene, output_name)
                 elif provider == "pika":
@@ -96,6 +106,32 @@ class VideoGenerator:
             await asyncio.sleep(2)
 
         return results
+
+    def _build_scene_output_prefix(self, scene: Scene, output_name: Optional[str]) -> str:
+        """构建场景输出前缀"""
+        prefix = output_name or "scene"
+        return f"{prefix}_scene{scene.scene_number}"
+
+    def _get_reference_image(self, scene: Scene, storyboard: Storyboard) -> Optional[str]:
+        """优先使用场景显式参考图，否则回退到第一个角色的参考图"""
+        if scene.reference_image and Path(scene.reference_image).exists():
+            return scene.reference_image
+
+        if not scene.character_ids:
+            return None
+
+        character_map = {
+            character.id: character.image_path
+            for character in storyboard.characters
+            if character.image_path
+        }
+
+        for character_id in scene.character_ids:
+            image_path = character_map.get(character_id)
+            if image_path and Path(image_path).exists():
+                return image_path
+
+        return None
 
     async def _generate_with_runway(self, scene: Scene, output_prefix: str = None) -> str:
         """使用 Runway Gen-3 生成视频"""
@@ -333,7 +369,7 @@ class DreaminaGenerator:
         print(f"    ⏳ 即梦任务已提交: {task_id}，等待生成...")
 
         # 2. 轮询等待结果
-        video_url = await self._poll_task(task_id)
+        video_url = await self._poll_task(task_id, req_key=self.model)
 
         # 3. 下载视频
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -374,7 +410,8 @@ class DreaminaGenerator:
             "req_key": "jimeng_ti2v_v30_pro",  # 图生视频使用 Pro 版
             "prompt": prompt,
             "image_url": f"data:image/png;base64,{img_base64}",
-            "duration": min(duration, 10),
+            "frames": 241 if duration > 5 else 121,
+            "aspect_ratio": "9:16",
             "seed": -1,
         }
 
@@ -383,7 +420,7 @@ class DreaminaGenerator:
         print(f"    ⏳ 即梦图生视频任务: {task_id}")
 
         # 2. 轮询等待结果
-        video_url = await self._poll_task(task_id)
+        video_url = await self._poll_task(task_id, req_key=form["req_key"])
 
         # 3. 下载视频
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -420,6 +457,7 @@ class DreaminaGenerator:
     async def _poll_task(
         self,
         task_id: str,
+        req_key: Optional[str] = None,
         max_wait_seconds: int = 600,
         poll_interval: int = 5
     ) -> str:
@@ -442,7 +480,7 @@ class DreaminaGenerator:
             - expired: 任务过期（超过 12 小时）
         """
         form = {
-            "req_key": self.model,
+            "req_key": req_key or self.model,
             "task_id": task_id,
         }
 
