@@ -20,6 +20,7 @@ from src.audio_gen import AudioGenerator
 from src.character_manager import CharacterManager
 from src.composer import VideoComposer
 from src.config import Config
+from src.scene_image_gen import SceneImageGenerator
 
 
 def setup_directories():
@@ -78,7 +79,7 @@ async def generate_full(
     """
     完整视频生成流程
 
-    包含：分镜生成 → 角色预生成 → 视频生成 → 音频生成 → 视频合成
+    包含：分镜生成 → 角色预生成 → 分镜图生成 → 视频生成 → 音频生成 → 视频合成
     """
     print("=" * 50)
     print("🎬 ShortGen 完整视频生成")
@@ -86,7 +87,7 @@ async def generate_full(
     print(f"📖 剧情: {plot[:100]}...")
 
     # 1. 生成分镜脚本（增强版，包含角色和对话）
-    print("\n📝 步骤 1/5: 生成分镜脚本...")
+    print("\n📝 步骤 1/6: 生成分镜脚本...")
     storyboard_gen = StoryboardGenerator()
     storyboard = await storyboard_gen.generate(
         plot,
@@ -99,33 +100,46 @@ async def generate_full(
     print(f"   🎬 场景: {len(storyboard.scenes)} 个")
     print(f"   ⏱️ 时长: {storyboard.total_duration:.1f} 秒")
 
-    # 保存分镜脚本
-    storyboard_gen.save(storyboard, output_name)
-
     # 2. 预生成角色图片（如果有角色）
     character_manager = CharacterManager()
     if enable_characters and storyboard.characters:
-        print(f"\n🎨 步骤 2/5: 预生成角色图片...")
+        print(f"\n🎨 步骤 2/6: 预生成角色图片...")
         character_manager.load_from_storyboard(storyboard)
         char_results = await character_manager.prepare_characters(storyboard.characters)
 
         success_count = sum(1 for r in char_results if r.status.startswith("success"))
         print(f"   ✅ 成功: {success_count}/{len(char_results)}")
     else:
-        print(f"\n🎨 步骤 2/5: 跳过角色生成（无角色或已禁用）")
+        print(f"\n🎨 步骤 2/6: 跳过角色生成（无角色或已禁用）")
 
-    # 3. 生成视频
-    print(f"\n🎬 步骤 3/5: 生成视频片段...")
+    # 3. 生成分镜图
+    print(f"\n🖼️ 步骤 3/6: 生成场景分镜图...")
+    scene_image_gen = SceneImageGenerator()
+    scene_image_results = await scene_image_gen.generate_for_storyboard(
+        storyboard,
+        output_name=output_name,
+    )
+    success_scene_images = [
+        result for result in scene_image_results if result.status.startswith("success")
+    ]
+    print(f"   ✅ 成功: {len(success_scene_images)}/{len(scene_image_results)}")
+
+    # 在角色图和分镜图写回后再保存一次分镜脚本
+    storyboard_file = storyboard_gen.save(storyboard, output_name)
+    print(f"   💾 已更新分镜文件: {storyboard_file}")
+
+    # 4. 生成视频
+    print(f"\n🎬 步骤 4/6: 生成视频片段...")
     video_gen = VideoGenerator(provider=provider)
     video_results = await video_gen.generate_from_storyboard(storyboard, output_name)
 
     success_videos = [v for v in video_results if v.status == "success"]
     print(f"   ✅ 成功: {len(success_videos)}/{len(video_results)}")
 
-    # 4. 生成音频（如果启用）
+    # 5. 生成音频（如果启用）
     audio_results = []
     if enable_audio:
-        print(f"\n🔊 步骤 4/5: 生成音频...")
+        print(f"\n🔊 步骤 5/6: 生成音频...")
 
         # 检查 TTS 配置
         audio_warnings = Config.validate_audio()
@@ -157,10 +171,10 @@ async def generate_full(
                 )
                 audio_results.append(bgm_result)
     else:
-        print(f"\n🔊 步骤 4/5: 跳过音频生成（已禁用）")
+        print(f"\n🔊 步骤 5/6: 跳过音频生成（已禁用）")
 
-    # 5. 合成最终视频
-    print(f"\n🎞️ 步骤 5/5: 合成最终视频...")
+    # 6. 合成最终视频
+    print(f"\n🎞️ 步骤 6/6: 合成最终视频...")
     composer = VideoComposer()
     final_result = await composer.compose(
         video_results,

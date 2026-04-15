@@ -55,6 +55,7 @@ class Scene(BaseModel):
     # 新增字段
     character_ids: List[str] = Field(default_factory=list, description="本场景出现的角色 ID 列表")
     reference_image: Optional[str] = Field(None, description="角色参考图片路径（图生视频时）")
+    scene_image_path: Optional[str] = Field(None, description="场景分镜图路径")
     dialogues: List[Dialogue] = Field(default_factory=list, description="对话列表")
     narration: Optional[str] = Field(None, description="旁白文本")
     audio_configs: List[AudioConfig] = Field(default_factory=list, description="音频配置列表")
@@ -108,6 +109,14 @@ class CharacterImageResult(BaseModel):
     """角色图片生成结果"""
     character_id: str
     character_name: str
+    image_path: str
+    status: str
+    error_message: Optional[str] = None
+
+
+class SceneImageResult(BaseModel):
+    """场景分镜图生成结果"""
+    scene_number: int
     image_path: str
     status: str
     error_message: Optional[str] = None

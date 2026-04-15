@@ -218,6 +218,7 @@ class StoryboardGenerator:
                 mood=scene_data.get("mood"),
                 character_ids=scene_data.get("character_ids", []),
                 reference_image=scene_data.get("reference_image"),
+                scene_image_path=scene_data.get("scene_image_path"),
                 dialogues=dialogues,
                 narration=scene_data.get("narration"),
                 audio_configs=scene_data.get("audio_configs", [])
@@ -311,6 +312,12 @@ class StoryboardGenerator:
                 lines.append(f"**镜头运动**: {scene.camera_movement}")
             if scene.mood:
                 lines.append(f"**氛围**: {scene.mood}")
+            if scene.character_ids:
+                lines.append(f"**出场角色**: {', '.join(scene.character_ids)}")
+            if scene.scene_image_path:
+                lines.append(f"**分镜图**: `{scene.scene_image_path}`")
+            if scene.reference_image:
+                lines.append(f"**视频参考图**: `{scene.reference_image}`")
             lines.append("")
 
         return "\n".join(lines)
