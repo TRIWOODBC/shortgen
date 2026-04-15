@@ -21,7 +21,7 @@ import httpx
 from .models import (
     AudioConfig, AudioResult, AudioType, Scene, Dialogue
 )
-from .config import Config
+from .config import Config, get_output_path
 
 
 class AudioGenerator:
@@ -37,7 +37,7 @@ class AudioGenerator:
         self.stable_audio_key = config.STABLE_AUDIO_API_KEY
         self.stable_audio_url = config.STABLE_AUDIO_API_URL
         self.music_library = Path(config.MUSIC_LIBRARY_PATH)
-        self.output_dir = Path("output/audios")
+        self.output_dir = get_output_path("audios")
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.proxy = config.HTTP_PROXY or None
         self._character_voices: Dict[str, str] = {}

@@ -10,7 +10,7 @@ import httpx
 from PIL import Image
 
 from .models import Storyboard, Scene, VideoResult
-from .config import Config
+from .config import Config, get_output_path
 
 
 class VideoGenerator:
@@ -34,7 +34,7 @@ class VideoGenerator:
         self.volc_ak = config.VOLC_ACCESS_KEY
         self.volc_sk = config.VOLC_SECRET_KEY
         self.proxy = config.HTTP_PROXY or None
-        self.output_dir = Path("output/videos")
+        self.output_dir = get_output_path("videos")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     def _get_provider(self) -> str:
@@ -309,7 +309,7 @@ class DreaminaGenerator:
         self.sk = config.VOLC_SECRET_KEY
         self.model = config.JIMENG_MODEL
         self.proxy = config.HTTP_PROXY or None
-        self.output_dir = Path("output/videos")
+        self.output_dir = get_output_path("videos")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         if not self.ak or not self.sk:

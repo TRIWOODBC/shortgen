@@ -8,12 +8,11 @@
 """
 
 import asyncio
-from pathlib import Path
 from typing import List, Optional, Dict
 
 from .models import Character, CharacterImageResult
 from .image_gen import ImageGenerator
-from .config import Config
+from .config import Config, resolve_output_dir
 
 
 # 预设音色映射
@@ -39,7 +38,7 @@ class CharacterManager:
 
     def __init__(self):
         self.image_gen = ImageGenerator()
-        self.characters_dir = Path(Config().CHARACTER_IMAGE_DIR)
+        self.characters_dir = resolve_output_dir(Config().CHARACTER_IMAGE_DIR)
         self.characters_dir.mkdir(parents=True, exist_ok=True)
         self._character_cache: Dict[str, Character] = {}
 

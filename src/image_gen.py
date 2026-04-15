@@ -22,7 +22,7 @@ import requests
 from PIL import Image
 
 from .models import Character, CharacterImageResult
-from .config import Config
+from .config import Config, resolve_output_dir
 
 
 class ImageGenerator:
@@ -36,7 +36,7 @@ class ImageGenerator:
         self.ark_base_url = config.ARK_BASE_URL.rstrip("/")
         self.provider = config.CHARACTER_IMAGE_PROVIDER
         self.model = config.CHARACTER_IMAGE_MODEL
-        self.output_dir = Path(config.CHARACTER_IMAGE_DIR)
+        self.output_dir = resolve_output_dir(config.CHARACTER_IMAGE_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.proxy = config.HTTP_PROXY or None
         self.visual_endpoint = "https://visual.volcengineapi.com"
@@ -193,13 +193,18 @@ class ImageGenerator:
             "Action": action,
             "Version": "2022-08-31",
         })
-        request_body = json.dumps(body, ensure_ascii=False)
+        request_body = json.dumps(
+            body,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        request_body_bytes = request_body.encode("utf-8")
 
-        now = datetime.datetime.now(datetime.UTC)
+        now = datetime.datetime.utcnow()
         current_date = now.strftime("%Y%m%dT%H%M%SZ")
         date_stamp = now.strftime("%Y%m%d")
 
-        payload_hash = hashlib.sha256(request_body.encode("utf-8")).hexdigest()
+        payload_hash = hashlib.sha256(request_body_bytes).hexdigest()
         canonical_headers = (
             f"content-type:application/json\n"
             f"host:{self.visual_host}\n"
@@ -238,7 +243,7 @@ class ImageGenerator:
         }
         url = f"{self.visual_endpoint}?{query}"
 
-        response = requests.post(url, headers=headers, data=request_body, timeout=120)
+        response = requests.post(url, headers=headers, data=request_body_bytes, timeout=120)
         if response.status_code != 200:
             raise ValueError(response.text)
 
@@ -483,4 +488,131 @@ class ImageGenerator:
 
         output_path = self.output_dir / f"ref_{int(time.time())}.png"
         await self._download_and_save(image_url, output_path)
+        return str(output_path)
+
+    async def generate_image_with_references(
+        self,
+        prompt: str,
+        reference_images: list[str],
+    ) -> str:
+        """
+        使用多张参考图生成图片。
+
+        当前主要对接 Ark/Seedream 4.0 的 image 数组形态。
+        对于签名接口，如果未确认支持多参考图，则回退到首张参考图。
+        """
+        clean_images = [image for image in reference_images if image]
+        if not clean_images:
+            raise ValueError("reference_images 不能为空")
+
+        if self._use_signed_aksk():
+            return await self.generate_image_with_reference(prompt, clean_images[0])
+
+        if self._use_legacy_visual():
+            return await self.generate_image_with_reference(prompt, clean_images[0])
+
+        self._ensure_ark_config()
+
+        ark_images: list[str] = []
+        for image_path in clean_images:
+            if image_path.startswith("http://") or image_path.startswith("https://"):
+                ark_images.append(image_path)
+                continue
+
+            image = Image.open(image_path)
+            buffer = io.BytesIO()
+            image.save(buffer, format="PNG")
+            encoded = base64.b64encode(buffer.getvalue()).decode()
+            ark_images.append(f"data:image/png;base64,{encoded}")
+
+        payload = {
+            "model": self.model,
+            "prompt": prompt,
+            "size": "1024x1024",
+            "response_format": "b64_json",
+            "image": ark_images,
+            "sequential_image_generation": "disabled",
+            "stream": False,
+            "watermark": True,
+        }
+        headers = {
+            "Authorization": f"Bearer {self.ark_api_key}",
+            "Content-Type": "application/json",
+        }
+        async with self._create_client(timeout=120) as client:
+            response = await client.post(
+                f"{self.ark_base_url}/images/generations",
+                headers=headers,
+                json=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        items = data.get("data", [])
+        if not items or not items[0].get("b64_json"):
+            raise ValueError(f"Ark 多参考图生成未返回图片数据: {data}")
+
+        output_path = self.output_dir / f"refs_{int(time.time())}.png"
+        output_path.write_bytes(base64.b64decode(items[0]["b64_json"]))
+        return str(output_path)
+
+    async def generate_scene_image(
+        self,
+        image_id: str,
+        prompt: str,
+        reference_image: str | None = None,
+        reference_images: list[str] | None = None,
+        regenerate: bool = False,
+    ) -> str:
+        """
+        生成场景分镜图。
+
+        如果底层接口支持参考图，则优先使用角色图参考；
+        否则回退到纯文本生图，但保留相同的输出路径约定。
+        """
+        output_path = self.output_dir.parent / "images" / f"{image_id}.png"
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if output_path.exists() and not regenerate:
+            return str(output_path)
+
+        scene_reference_images = [img for img in (reference_images or []) if img]
+        if reference_image and reference_image not in scene_reference_images:
+            scene_reference_images.insert(0, reference_image)
+
+        if scene_reference_images:
+            try:
+                if len(scene_reference_images) == 1:
+                    generated = await self.generate_image_with_reference(
+                        prompt=prompt,
+                        reference_image=scene_reference_images[0],
+                    )
+                else:
+                    generated = await self.generate_image_with_references(
+                        prompt=prompt,
+                        reference_images=scene_reference_images,
+                    )
+                generated_path = Path(generated)
+                if generated_path != output_path:
+                    output_path.write_bytes(generated_path.read_bytes())
+                return str(output_path)
+            except Exception:
+                # 当前 provider 不支持图参考时回退到文本生图
+                pass
+
+        scene_prompt = (
+            f"{prompt}, cinematic storyboard frame, realistic film still, ultra detailed"
+        )
+
+        if self._use_signed_aksk():
+            image_bytes = await self._generate_image_signed(scene_prompt)
+            output_path.write_bytes(image_bytes)
+            return str(output_path)
+
+        if self._use_legacy_visual():
+            image_url = await self._generate_image_legacy(scene_prompt)
+            await self._download_and_save(image_url, output_path)
+            return str(output_path)
+
+        image_bytes = await self._generate_image_ark(scene_prompt)
+        output_path.write_bytes(image_bytes)
         return str(output_path)

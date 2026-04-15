@@ -12,6 +12,7 @@ from typing import Dict, List
 
 from .image_gen import ImageGenerator
 from .models import Character, Scene, SceneImageResult, Storyboard
+from .config import get_output_path
 
 
 class SceneImageGenerator:
@@ -19,7 +20,7 @@ class SceneImageGenerator:
 
     def __init__(self):
         self.image_gen = ImageGenerator()
-        self.output_dir = Path("output/images")
+        self.output_dir = get_output_path("images")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
     async def generate_for_storyboard(
@@ -67,40 +68,37 @@ class SceneImageGenerator:
             )
 
         prompt = self._build_scene_prompt(scene, character_map)
+        reference_images = self._get_reference_images(scene, character_map)
+        reference_image = reference_images[0] if reference_images else None
 
-        temp_character = Character(
-            id=f"scene_{scene.scene_number}",
-            name=f"场景{scene.scene_number}",
-            description=prompt,
-        )
-
-        result = await self.image_gen.generate_character_image(
-            temp_character,
-            style="cinematic storyboard frame, realistic film still, ultra detailed",
-            regenerate=regenerate,
-        )
-
-        if not result.status.startswith("success"):
+        try:
+            generated_path = await self.image_gen.generate_scene_image(
+                image_id=self._build_scene_image_name(scene.scene_number, output_name),
+                prompt=prompt,
+                reference_image=reference_image,
+                reference_images=reference_images,
+                regenerate=regenerate,
+            )
+        except Exception as exc:
             return SceneImageResult(
                 scene_number=scene.scene_number,
                 image_path="",
                 status="failed",
-                error_message=result.error_message,
+                error_message=str(exc),
             )
-
-        generated_path = Path(result.image_path)
-        if generated_path != image_path:
-            image_path.write_bytes(generated_path.read_bytes())
 
         return SceneImageResult(
             scene_number=scene.scene_number,
-            image_path=str(image_path),
+            image_path=str(generated_path),
             status="success",
         )
 
     def _build_scene_image_path(self, scene_number: int, output_name: str | None) -> Path:
+        return self.output_dir / f"{self._build_scene_image_name(scene_number, output_name)}.png"
+
+    def _build_scene_image_name(self, scene_number: int, output_name: str | None) -> str:
         prefix = output_name or "storyboard"
-        return self.output_dir / f"{prefix}_scene{scene_number}.png"
+        return f"{prefix}_scene{scene_number}"
 
     def _build_scene_prompt(
         self,
@@ -136,3 +134,25 @@ class SceneImageGenerator:
             "single cinematic keyframe, one film still, no text, no watermark"
         )
         return ", ".join(prompt_parts)
+
+    def _get_reference_images(
+        self,
+        scene: Scene,
+        character_map: Dict[str, Character],
+    ) -> list[str]:
+        """
+        收集场景参考图。
+
+        优先取场景已有 reference_image，其次取出场角色的人设图。
+        这样在支持多参考图的 provider 上，可以同时把角色图和分镜稿一起用于生成分镜图。
+        """
+        references: list[str] = []
+        if scene.reference_image:
+            references.append(scene.reference_image)
+
+        for character_id in scene.character_ids:
+            character = character_map.get(character_id)
+            if character and character.image_path and character.image_path not in references:
+                references.append(character.image_path)
+
+        return references

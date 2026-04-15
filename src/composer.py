@@ -15,7 +15,7 @@ from .models import (
     Storyboard, Scene, VideoResult, AudioResult,
     AudioType, ComposedVideoResult
 )
-from .config import Config
+from .config import Config, get_output_path
 
 
 class VideoComposer:
@@ -35,7 +35,7 @@ class VideoComposer:
         self.ffprobe_path = self.ffmpeg_path.replace("ffmpeg", "ffprobe")
         self.video_codec = config.VIDEO_CODEC
         self.audio_codec = config.AUDIO_CODEC
-        self.output_dir = Path("output/final")
+        self.output_dir = get_output_path("final")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
         # 检查 FFmpeg 是否可用

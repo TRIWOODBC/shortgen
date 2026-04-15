@@ -5,7 +5,7 @@ from pathlib import Path
 from openai import OpenAI
 
 from .models import Storyboard, Scene, TrendingItem, Character, Dialogue
-from .config import Config
+from .config import Config, get_output_path
 
 
 SYSTEM_PROMPT = """你是一个专业的短视频分镜师和提示词工程师。
@@ -265,7 +265,7 @@ class StoryboardGenerator:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         filename = output_name or f"storyboard_{timestamp}"
 
-        output_path = Path("output/storyboards") / f"{filename}.json"
+        output_path = get_output_path("storyboards") / f"{filename}.json"
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
         output_path.write_text(
@@ -274,7 +274,7 @@ class StoryboardGenerator:
         )
 
         # 同时保存可读的Markdown版本
-        md_path = Path("output/storyboards") / f"{filename}.md"
+        md_path = get_output_path("storyboards") / f"{filename}.md"
         md_content = self._to_markdown(storyboard)
         md_path.write_text(md_content, encoding="utf-8")
 

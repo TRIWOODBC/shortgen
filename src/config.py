@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from dataclasses import dataclass
 
 # 预设的 LLM 平台配置
@@ -175,3 +176,29 @@ class Config:
             )
 
         return warnings
+
+
+def get_output_root() -> Path:
+    """获取当前运行的输出根目录"""
+    project_root = os.getenv("PROJECT_OUTPUT_ROOT")
+    if project_root:
+        return Path(project_root)
+    return Path("output")
+
+
+def resolve_output_dir(path_str: str) -> Path:
+    """将配置中的输出目录解析到当前项目目录下。"""
+    path = Path(path_str)
+    if path.is_absolute():
+        return path
+
+    parts = list(path.parts)
+    if parts and parts[0] == "output":
+        parts = parts[1:]
+
+    return get_output_root().joinpath(*parts)
+
+
+def get_output_path(*parts: str) -> Path:
+    """获取当前运行下的输出路径"""
+    return get_output_root().joinpath(*parts)

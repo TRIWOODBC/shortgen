@@ -9,6 +9,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from datetime import datetime
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -19,19 +20,32 @@ from src.video_gen import VideoGenerator
 from src.audio_gen import AudioGenerator
 from src.character_manager import CharacterManager
 from src.composer import VideoComposer
-from src.config import Config
+from src.config import Config, get_output_root
 from src.scene_image_gen import SceneImageGenerator
+
+
+def resolve_project_name(output_name: str | None) -> str:
+    """为当前运行生成项目目录名"""
+    if output_name:
+        return output_name
+    return f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+
+
+def setup_project_environment(project_name: str):
+    """设置当前运行的独立项目输出目录"""
+    project_root = Path("output/projects") / project_name
+    os.environ["PROJECT_OUTPUT_ROOT"] = str(project_root)
 
 
 def setup_directories():
     """创建必要的目录"""
     dirs = [
-        "output/videos",
-        "output/storyboards",
-        "output/images",
-        "output/audios",
-        "output/characters",
-        "output/final",
+        get_output_root() / "videos",
+        get_output_root() / "storyboards",
+        get_output_root() / "images",
+        get_output_root() / "audios",
+        get_output_root() / "characters",
+        get_output_root() / "final",
         "assets/music"
     ]
     for d in dirs:
@@ -40,7 +54,12 @@ def setup_directories():
 
 async def generate_from_plot(plot: str, output_name: str = None, provider: str = "dreamina"):
     """根据剧情生成视频（基础版，不含音频）"""
+    output_name = resolve_project_name(output_name)
+    setup_project_environment(output_name)
+    setup_directories()
+
     print(f"🎬 开始生成视频...")
+    print(f"📁 项目目录: {get_output_root()}")
     print(f"📖 剧情: {plot[:100]}...")
 
     # 1. 生成分镜脚本
@@ -81,9 +100,14 @@ async def generate_full(
 
     包含：分镜生成 → 角色预生成 → 分镜图生成 → 视频生成 → 音频生成 → 视频合成
     """
+    output_name = resolve_project_name(output_name)
+    setup_project_environment(output_name)
+    setup_directories()
+
     print("=" * 50)
     print("🎬 ShortGen 完整视频生成")
     print("=" * 50)
+    print(f"📁 项目目录: {get_output_root()}")
     print(f"📖 剧情: {plot[:100]}...")
 
     # 1. 生成分镜脚本（增强版，包含角色和对话）
@@ -319,8 +343,6 @@ def main():
     parser.add_argument("--no-characters", action="store_true", help="禁用角色一致性")
 
     args = parser.parse_args()
-
-    setup_directories()
 
     # 检查环境变量
     config_errors = Config.validate()
