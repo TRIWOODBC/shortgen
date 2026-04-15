@@ -1,261 +1,312 @@
 # ShortGen
 
-AI driven short-video generation CLI. It turns a plot or trending topic into a storyboard, calls external video APIs to generate clips, and can optionally add character reference images, narration, and background music.
+ShortGen 是一个本地 CLI 项目，用来把一段剧情自动变成短视频生产流程。
 
-## Current Scope
+当前这版重点已经放在这条链路上：
 
-ShortGen currently focuses on a local command-line workflow:
+1. 输入剧情
+2. LLM 生成分镜稿
+3. 生成角色图
+4. 生成分镜图
+5. 生成视频片段
+6. 可选生成音频并用 FFmpeg 合成成片
 
-1. Generate a storyboard from a plot or a trending topic
-2. Generate scene videos through one configured provider
-3. Optionally pre-generate character reference images
-4. Optionally generate TTS narration / dialogue and background music
-5. Merge clips and audio with FFmpeg
+项目现在更适合做原型验证和自动化内容生产测试，还不是一个完全打磨好的产品平台。
 
-The project is usable as a prototype, but it is still under active iteration. Some capabilities described below are partial rather than fully production-hardened.
+## 当前能力
 
-## Features
+- 剧情转分镜稿
+- 热点转剧情再转分镜
+- 角色图生成
+- 分镜图生成
+- 即梦 / Runway / Pika 视频生成路由
+- 可选 TTS、BGM、FFmpeg 合成
+- 每次运行按项目名单独输出到独立文件夹
 
-- Plot mode: turn a custom story idea into a storyboard and scene videos
-- Trending mode: fetch hot topics and generate a short plot automatically
-- Full mode: storyboard + character images + audio + final composition
-- Multiple video providers:
-  - Dreamina / Jimeng via Volcengine
-  - Runway
-  - Pika
-- LLM abstraction for storyboard generation:
-  - DeepSeek
-  - GLM
-  - Kimi
-  - OpenAI-compatible APIs
-- Background music from:
-  - local music library
-  - Suno API
-  - Stable Audio API
-- 9:16 vertical-video oriented output
+## 当前推荐用法
 
-## What Is Implemented vs Partial
+如果你在国内环境、并且想先把“分镜稿 + 角色图 + 分镜图 + 视频”跑通，当前推荐组合是：
 
-Implemented:
+- `LLM_PROVIDER=deepseek`
+- `VIDEO_PROVIDER=dreamina`
+- `CHARACTER_IMAGE_PROVIDER=signed_aksk`
+- `CHARACTER_IMAGE_MODEL=jimeng_t2i_v40`
 
-- CLI entrypoint
-- Storyboard generation
-- Trending fetcher
-- Video generation provider routing
-- Character image generation and caching
-- TTS and background music modules
-- FFmpeg-based final merge
-
-Partial / still evolving:
-
-- Dreamina now preferentially uses generated character reference images for scene video generation, but consistency still depends on provider-side model behavior
-- Audio is merged at a basic workflow level and may still need tighter scene-level timing alignment
-- API integrations depend on external provider stability and quota settings
-
-## Project Structure
-
-```text
-shortgen-1/
-├── main.py
-├── requirements.txt
-├── .env.example
-├── src/
-│   ├── config.py
-│   ├── models.py
-│   ├── storyboard.py
-│   ├── trending.py
-│   ├── video_gen.py
-│   ├── image_gen.py
-│   ├── character_manager.py
-│   ├── audio_gen.py
-│   └── composer.py
-├── assets/
-│   └── music/
-└── output/
-    ├── videos/
-    ├── storyboards/
-    ├── images/
-    ├── characters/
-    ├── audios/
-    └── final/
-```
-
-## Requirements
+## 环境要求
 
 - Python 3.10+
-- FFmpeg available in `PATH`
-- At least one LLM API key
-- At least one video provider configured
+- `ffmpeg` 已安装并可在命令行直接调用
 
-Install FFmpeg on macOS:
+macOS 安装 FFmpeg：
 
 ```bash
 brew install ffmpeg
 ```
 
-## Installation
+## 安装
 
 ```bash
+cd shortgen-1
 pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Then fill in `.env`.
+然后去编辑项目根目录下的 `.env` 文件，把你自己的 API 信息填进去。
 
-Minimum required configuration:
+## API 要填在哪里
+
+统一填写在：
+
+- [`.env`](./.env.example)
+
+实际使用时请先复制一份：
+
+```bash
+cp .env.example .env
+```
+
+然后改 `.env`，不要直接改 `.env.example`。
+
+## 最小可运行配置
+
+至少需要两类配置：
+
+1. 一个 LLM Key，用来生成分镜稿
+2. 一个视频 provider，用来生成视频
+
+如果你还要生成角色图，建议同时配置火山即梦图片能力。
+
+最小示例：
 
 ```env
+# 分镜 LLM
+LLM_PROVIDER=deepseek
 LLM_API_KEY=your_llm_api_key
 
-# choose at least one video provider
-VOLC_ACCESS_KEY=your_access_key
-VOLC_SECRET_KEY=your_secret_key
-# or
-RUNWAY_API_KEY=your_runway_api_key
-# or
-PIKA_API_KEY=your_pika_api_key
+# 视频生成：即梦
+VIDEO_PROVIDER=dreamina
+VOLC_ACCESS_KEY=your_volc_access_key
+VOLC_SECRET_KEY=your_volc_secret_key
+JIMENG_MODEL=jimeng_t2v_v30
+
+# 角色图 / 分镜图
+CHARACTER_IMAGE_PROVIDER=signed_aksk
+CHARACTER_IMAGE_MODEL=jimeng_t2i_v40
 ```
 
-Optional configuration for full mode:
+## 常用配置说明
+
+### 1. LLM 配置
+
+在 `.env` 里填写：
 
 ```env
-VOLC_TTS_APP_ID=your_tts_app_id
-VOLC_TTS_ACCESS_TOKEN=your_tts_access_token
-SUNO_API_KEY=your_suno_key
-STABLE_AUDIO_API_KEY=your_stable_audio_key
-NEWS_API_KEY=your_newsapi_key
-HTTP_PROXY=http://127.0.0.1:7890
-HTTPS_PROXY=http://127.0.0.1:7890
+LLM_PROVIDER=deepseek
+LLM_API_KEY=your_llm_api_key
 ```
 
-## Supported Providers
-
-### LLM providers
+支持的 `LLM_PROVIDER`：
 
 - `deepseek`
 - `glm`
 - `kimi`
 - `openai`
-- `custom` via `LLM_BASE_URL` and `LLM_MODEL`
+- `custom`
 
-### Video providers
+如果你要接自定义 OpenAI 兼容接口，可以再补：
 
-- `dreamina`
-- `runway`
-- `pika`
-- `auto` chooses in this order:
-  1. Dreamina
-  2. Runway
-  3. Pika
+```env
+LLM_BASE_URL=https://your-openai-compatible-endpoint
+LLM_MODEL=your-model-name
+```
 
-The project now defaults to `dreamina`.
+### 2. 即梦视频配置
 
-## Usage
+如果你用即梦做视频，在 `.env` 里填写：
 
-Interactive mode:
+```env
+VIDEO_PROVIDER=dreamina
+VOLC_ACCESS_KEY=your_volc_access_key
+VOLC_SECRET_KEY=your_volc_secret_key
+JIMENG_MODEL=jimeng_t2v_v30
+```
+
+常见模型值：
+
+- `jimeng_t2v_v30`
+- `jimeng_t2v_v30_pro`
+
+### 3. 角色图 / 分镜图配置
+
+当前项目默认推荐这一组：
+
+```env
+CHARACTER_IMAGE_PROVIDER=signed_aksk
+CHARACTER_IMAGE_MODEL=jimeng_t2i_v40
+```
+
+这条链路会使用你上面已经填写的：
+
+- `VOLC_ACCESS_KEY`
+- `VOLC_SECRET_KEY`
+
+也就是说，如果你已经配好了即梦视频 AK/SK，通常不需要再额外给角色图单独配一套鉴权。
+
+如果你要改成 Ark 图片接口，再填写：
+
+```env
+CHARACTER_IMAGE_PROVIDER=ark
+ARK_API_KEY=your_ark_api_key
+ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3
+```
+
+### 4. 音频配置
+
+如果你想启用旁白 / 对话 TTS，在 `.env` 里填写：
+
+```env
+VOLC_TTS_APP_ID=your_tts_app_id
+VOLC_TTS_ACCESS_TOKEN=your_tts_access_token
+VOLC_TTS_DEFAULT_VOICE=zh_female_shuangkuaisisi_moon_bigtts
+```
+
+### 5. 热点和代理配置
+
+可选：
+
+```env
+NEWS_API_KEY=your_newsapi_key
+HTTP_PROXY=http://127.0.0.1:7890
+HTTPS_PROXY=http://127.0.0.1:7890
+```
+
+## `.env.example` 里这些字段分别是干什么的
+
+- `LLM_PROVIDER`：分镜稿用哪个 LLM
+- `LLM_API_KEY`：分镜稿生成必须
+- `VIDEO_PROVIDER`：视频生成平台
+- `VOLC_ACCESS_KEY` / `VOLC_SECRET_KEY`：即梦视频、签名图片接口共用
+- `JIMENG_MODEL`：即梦视频模型
+- `CHARACTER_IMAGE_PROVIDER`：角色图 / 分镜图生成方式
+- `CHARACTER_IMAGE_MODEL`：角色图 / 分镜图模型或 `req_key`
+- `VOLC_TTS_APP_ID` / `VOLC_TTS_ACCESS_TOKEN`：音频合成
+- `NEWS_API_KEY`：热点模式可选
+- `HTTP_PROXY` / `HTTPS_PROXY`：网络代理可选
+
+## 使用方式
+
+### 1. 交互模式
 
 ```bash
 python main.py -i
 ```
 
-Generate video from a plot:
+### 2. 用一句剧情直接生成
+
+基础模式：
 
 ```bash
 python main.py -p "一个年轻人独自在深夜的地铁站等车"
 ```
 
-Generate full output:
+完整模式：
 
 ```bash
 python main.py -p "一个年轻人独自在深夜的地铁站等车" --full
 ```
 
-Explicitly choose a provider:
-
-```bash
-python main.py -p "一个年轻人独自在深夜的地铁站等车" --provider dreamina
-```
-
-Read plot from file:
+### 3. 从文件读取剧情
 
 ```bash
 python main.py -f plot.txt --full
 ```
 
-Generate from trending topics:
+### 4. 指定视频 provider
+
+```bash
+python main.py -p "一个古代将军守城的故事" --provider dreamina --full
+```
+
+### 5. 热点模式
 
 ```bash
 python main.py -t --full
 ```
 
-Choose trending category:
+指定热点类别：
 
 ```bash
 python main.py -t -c tech --full
 ```
 
-Disable optional modules in full mode:
+### 6. 关闭音频或角色增强
 
 ```bash
 python main.py -p "一个海边回忆故事" --full --no-audio
 python main.py -p "一个海边回忆故事" --full --no-characters
 ```
 
-## Output
+## 输出目录
 
-Typical outputs:
+现在每次运行都会建立独立项目目录：
 
-- `output/storyboards/*.json`
-- `output/videos/*.mp4`
-- `output/characters/*.png`
-- `output/audios/*.mp3`
-- `output/final/*.mp4`
-
-## Provider Notes
-
-### Dreamina / Jimeng
-
-Recommended for mainland China users. Configure:
-
-```env
-VOLC_ACCESS_KEY=your_access_key
-VOLC_SECRET_KEY=your_secret_key
-JIMENG_MODEL=jimeng_t2v_v30
-VIDEO_PROVIDER=dreamina
+```text
+output/projects/<项目名>/
+├── storyboards/
+├── characters/
+├── images/
+├── videos/
+├── audios/
+└── final/
 ```
 
-### Runway
+如果你通过 `-o my_project` 指定输出名，项目目录通常会变成：
 
-May require overseas network access depending on your environment.
+```text
+output/projects/my_project/
+```
 
-### Pika
+如果你不传 `-o`，程序会自动生成一个带时间戳的项目名。
 
-Useful for quick experiments, but behavior depends on current API limits and account quota.
+## 当前实现边界
 
-## Trending Sources
+已经可用：
 
-Current fetcher behavior:
+- 剧情 -> 分镜稿
+- 角色图生成
+- 分镜图生成
+- 视频生成
+- 基础音频和最终合成
+- 输出目录按项目隔离
 
-- If `NEWS_API_KEY` is configured, use NewsAPI
-- Otherwise default to Weibo hot search
+仍在持续优化：
 
-The codebase also contains Baidu and Zhihu fetcher implementations, but the default path currently prefers NewsAPI or Weibo.
+- 角色图参与分镜图生成时，不同 provider 的参考图支持程度不同
+- 音频和镜头时长的精确对齐还可以继续加强
+- 外部 API 的稳定性、配额和风控会直接影响结果
 
-## Development Notes
+## 依赖说明
 
-- This repository is a CLI-first prototype rather than a polished platform product
-- External API behavior, request payloads, and quotas may change over time
-- Full end-to-end success depends on valid credentials, available quota, and FFmpeg being installed
-- If you want stable production output, expect to add more retries, validation, and provider-specific error handling
+项目运行依赖见 [requirements.txt](./requirements.txt)。
 
-## Roadmap
+核心依赖包括：
 
-- Improve scene-level audio timing
-- Strengthen character-consistency flow into video generation
-- Add subtitles
-- Add Web UI
-- Add more providers
+- `openai`
+- `python-dotenv`
+- `pydantic`
+- `httpx`
+- `requests`
+- `Pillow`
+- `beautifulsoup4`
+- `volcengine`
 
-## License
+## 建议
 
-MIT
+如果你是第一次跑，建议顺序是：
+
+1. 先配置好 `.env`
+2. 先跑一段短剧情
+3. 先确认 `storyboards/`、`characters/`、`images/` 是否正常
+4. 再去跑完整视频
+
+这样更容易排查是 LLM、图片、视频，还是 FFmpeg 哪一层出了问题。

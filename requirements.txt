@@ -1,12 +1,8 @@
 openai>=1.0.0
-aiohttp>=3.9.0
 python-dotenv>=1.0.0
 pydantic>=2.5.0
 httpx>=0.25.0
+requests>=2.31.0
 pillow>=10.0.0
 beautifulsoup4>=4.12.0
 volcengine>=1.0.0
-
-# Audio/video processing (optional, for advanced features)
-# ffmpeg-python>=0.2.0
-# pydub>=0.25.0
