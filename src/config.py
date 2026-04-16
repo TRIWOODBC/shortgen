@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 from dataclasses import dataclass
+from dotenv import load_dotenv
+
+
+load_dotenv()
 
 # 预设的 LLM 平台配置
 LLM_PRESETS = {
@@ -95,6 +99,7 @@ class Config:
         "CHARACTER_IMAGE_MODEL",
         "jimeng_t2i_v40"
     )
+    PUBLIC_ASSET_BASE_URL: str = os.getenv("PUBLIC_ASSET_BASE_URL", "")
 
     # === 视频合成配置 ===
     FFMPEG_PATH: str = os.getenv("FFMPEG_PATH", "ffmpeg")

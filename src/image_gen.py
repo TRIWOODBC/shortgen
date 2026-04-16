@@ -22,7 +22,7 @@ import requests
 from PIL import Image
 
 from .models import Character, CharacterImageResult
-from .config import Config, resolve_output_dir
+from .config import Config, get_output_path, resolve_output_dir
 
 
 class ImageGenerator:
@@ -36,8 +36,11 @@ class ImageGenerator:
         self.ark_base_url = config.ARK_BASE_URL.rstrip("/")
         self.provider = config.CHARACTER_IMAGE_PROVIDER
         self.model = config.CHARACTER_IMAGE_MODEL
+        self.public_asset_base_url = config.PUBLIC_ASSET_BASE_URL.rstrip("/")
         self.output_dir = resolve_output_dir(config.CHARACTER_IMAGE_DIR)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.cache_dir = get_output_path("cache")
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.proxy = config.HTTP_PROXY or None
         self.visual_endpoint = "https://visual.volcengineapi.com"
         self.visual_host = "visual.volcengineapi.com"
@@ -46,6 +49,33 @@ class ImageGenerator:
 
         if self._use_legacy_visual():
             self._init_visual_service()
+
+    def _debug_log_reference_submission(
+        self,
+        mode: str,
+        prompt: str,
+        local_images: list[str] | None = None,
+        public_urls: list[str] | None = None,
+        scale: float | None = None,
+    ) -> None:
+        """打印当前提交给生图接口的参考图调试信息。"""
+        prompt_preview = " ".join(prompt.split())
+        if len(prompt_preview) > 280:
+            prompt_preview = prompt_preview[:280] + "..."
+
+        print("\n[Jimeng Debug] scene image request")
+        print(f"  mode: {mode}")
+        if scale is not None:
+            print(f"  scale: {scale}")
+        if local_images:
+            print("  local_images:")
+            for image in local_images:
+                print(f"    - {image}")
+        if public_urls:
+            print("  public_urls:")
+            for url in public_urls:
+                print(f"    - {url}")
+        print(f"  prompt_preview: {prompt_preview}")
 
     def _use_legacy_visual(self) -> bool:
         """是否回退使用旧版 Visual Service"""
@@ -107,7 +137,7 @@ class ImageGenerator:
     async def generate_character_image(
         self,
         character: Character,
-        style: str = "realistic portrait, high quality photography",
+        style: str = "cinematic character design sheet, three-view turnaround, front side back views",
         regenerate: bool = False
     ) -> CharacterImageResult:
         """为角色生成参考图片"""
@@ -165,8 +195,9 @@ class ImageGenerator:
         return (
             f"{character.description}, "
             f"{style}, "
-            f"neutral background, centered composition, "
-            f"professional photography, detailed"
+            "full body character sheet, same character shown in front view side view back view, "
+            "consistent face clothing and armor details, clean layout, neutral studio background, "
+            "high detail costume design, no text labels, no watermark"
         )
 
     @staticmethod
@@ -248,6 +279,103 @@ class ImageGenerator:
             raise ValueError(response.text)
 
         return response.json()
+
+    def _local_path_to_public_url(self, image_path: str) -> str:
+        """将本地项目内图片路径映射成即梦可访问的公网 URL。"""
+        if image_path.startswith("http://") or image_path.startswith("https://"):
+            return image_path
+
+        if not self.public_asset_base_url:
+            raise ValueError(
+                "当前图片 4.0 编辑接口需要 image_urls，可你还没配置 PUBLIC_ASSET_BASE_URL。"
+                "请把 output 目录通过公网 URL 暴露出来，例如 https://xxx.ngrok-free.app/media"
+            )
+
+        path = Path(image_path)
+        resolved = path.resolve()
+        base_output = (Path(__file__).resolve().parent.parent / "output").resolve()
+        try:
+            relative = resolved.relative_to(base_output)
+        except ValueError as exc:
+            raise ValueError(f"参考图路径不在 output 目录下，无法映射公网 URL: {image_path}") from exc
+
+        return f"{self.public_asset_base_url}/{relative.as_posix()}"
+
+    async def _submit_signed_async_image_task(
+        self,
+        prompt: str,
+        image_urls: list[str] | None = None,
+        scale: float = 0.5,
+        force_single: bool = True,
+    ) -> str:
+        """按即梦图片 4.0 文档提交异步任务，返回 task_id。"""
+        form = {
+            "req_key": self.model,
+            "prompt": prompt,
+            "force_single": force_single,
+        }
+        if image_urls:
+            form["image_urls"] = image_urls
+            form["scale"] = scale
+
+        loop = asyncio.get_event_loop()
+        resp = await loop.run_in_executor(
+            None, self._signed_post, "CVSync2AsyncSubmitTask", form
+        )
+
+        code = resp.get("code", -1)
+        if code not in (0, 10000):
+            raise ValueError(f"图片4.0异步任务提交失败: {resp}")
+
+        task_id = resp.get("data", {}).get("task_id")
+        if not task_id:
+            raise ValueError(f"图片4.0未返回 task_id: {resp}")
+        return task_id
+
+    async def _poll_signed_async_image_task(
+        self,
+        task_id: str,
+        max_wait: int = 300,
+        interval: int = 3,
+    ) -> bytes:
+        """轮询图片4.0异步结果并返回图片 bytes。"""
+        start_time = time.time()
+
+        while (time.time() - start_time) < max_wait:
+            body = {
+                "req_key": self.model,
+                "task_id": task_id,
+                "req_json": json.dumps({"return_url": True}, ensure_ascii=False),
+            }
+            loop = asyncio.get_event_loop()
+            resp = await loop.run_in_executor(
+                None, self._signed_post, "CVSync2AsyncGetResult", body
+            )
+
+            code = resp.get("code", -1)
+            data = resp.get("data") or {}
+            status = data.get("status", "")
+
+            if code in (0, 10000) and status == "done":
+                image_urls = data.get("image_urls") or []
+                if image_urls:
+                    async with self._create_client(timeout=120) as client:
+                        response = await client.get(image_urls[0])
+                        response.raise_for_status()
+                        return response.content
+
+                images = data.get("binary_data_base64") or []
+                if images:
+                    return base64.b64decode(images[0])
+
+                raise ValueError(f"图片4.0任务完成但没有返回图片: {resp}")
+
+            if status in ("not_found", "expired"):
+                raise ValueError(f"图片4.0任务异常: {status}")
+
+            await asyncio.sleep(interval)
+
+        raise TimeoutError("图片4.0任务轮询超时")
 
     async def _generate_image_signed(
         self,
@@ -411,7 +539,7 @@ class ImageGenerator:
         self,
         prompt: str,
         reference_image: str,
-        strength: float = 0.5
+        strength: float = 0.3
     ) -> str:
         """
         基于参考图生成新图片（保持角色一致性）
@@ -449,15 +577,29 @@ class ImageGenerator:
             if not items or not items[0].get("b64_json"):
                 raise ValueError(f"Ark 图生图未返回图片数据: {data}")
 
-            output_path = self.output_dir / f"ref_{int(time.time())}.png"
+            output_path = self.cache_dir / f"ref_{int(time.time())}.png"
             output_path.write_bytes(base64.b64decode(items[0]["b64_json"]))
             return str(output_path)
 
         if self._use_signed_aksk():
-            raise ValueError(
-                "签名接口的图生图参数仍需根据你账号开通的 req_key 确认，"
-                "当前先支持文生角色图。"
+            public_url = self._local_path_to_public_url(reference_image)
+            self._debug_log_reference_submission(
+                mode="single_reference",
+                prompt=prompt,
+                local_images=[reference_image],
+                public_urls=[public_url],
+                scale=strength,
             )
+            image_bytes = await self._poll_signed_async_image_task(
+                await self._submit_signed_async_image_task(
+                    prompt=prompt,
+                    image_urls=[public_url],
+                    scale=strength,
+                )
+            )
+            output_path = self.cache_dir / f"ref_{int(time.time())}.png"
+            output_path.write_bytes(image_bytes)
+            return str(output_path)
 
         image = Image.open(reference_image)
         buffer = io.BytesIO()
@@ -486,7 +628,7 @@ class ImageGenerator:
         task_id = resp.get("data", {}).get("task_id")
         image_url = await self._poll_image_task(task_id)
 
-        output_path = self.output_dir / f"ref_{int(time.time())}.png"
+        output_path = self.cache_dir / f"ref_{int(time.time())}.png"
         await self._download_and_save(image_url, output_path)
         return str(output_path)
 
@@ -494,6 +636,7 @@ class ImageGenerator:
         self,
         prompt: str,
         reference_images: list[str],
+        strength: float = 0.3,
     ) -> str:
         """
         使用多张参考图生成图片。
@@ -506,7 +649,24 @@ class ImageGenerator:
             raise ValueError("reference_images 不能为空")
 
         if self._use_signed_aksk():
-            return await self.generate_image_with_reference(prompt, clean_images[0])
+            public_urls = [self._local_path_to_public_url(path) for path in clean_images]
+            self._debug_log_reference_submission(
+                mode="multi_reference",
+                prompt=prompt,
+                local_images=clean_images,
+                public_urls=public_urls,
+                scale=strength,
+            )
+            image_bytes = await self._poll_signed_async_image_task(
+                await self._submit_signed_async_image_task(
+                    prompt=prompt,
+                    image_urls=public_urls,
+                    scale=strength,
+                )
+            )
+            output_path = self.cache_dir / f"refs_{int(time.time())}.png"
+            output_path.write_bytes(image_bytes)
+            return str(output_path)
 
         if self._use_legacy_visual():
             return await self.generate_image_with_reference(prompt, clean_images[0])
@@ -552,7 +712,7 @@ class ImageGenerator:
         if not items or not items[0].get("b64_json"):
             raise ValueError(f"Ark 多参考图生成未返回图片数据: {data}")
 
-        output_path = self.output_dir / f"refs_{int(time.time())}.png"
+        output_path = self.cache_dir / f"refs_{int(time.time())}.png"
         output_path.write_bytes(base64.b64decode(items[0]["b64_json"]))
         return str(output_path)
 
@@ -562,6 +722,7 @@ class ImageGenerator:
         prompt: str,
         reference_image: str | None = None,
         reference_images: list[str] | None = None,
+        reference_strength: float = 0.3,
         regenerate: bool = False,
     ) -> str:
         """
@@ -585,19 +746,22 @@ class ImageGenerator:
                     generated = await self.generate_image_with_reference(
                         prompt=prompt,
                         reference_image=scene_reference_images[0],
+                        strength=reference_strength,
                     )
                 else:
                     generated = await self.generate_image_with_references(
                         prompt=prompt,
                         reference_images=scene_reference_images,
+                        strength=reference_strength,
                     )
                 generated_path = Path(generated)
                 if generated_path != output_path:
                     output_path.write_bytes(generated_path.read_bytes())
                 return str(output_path)
-            except Exception:
-                # 当前 provider 不支持图参考时回退到文本生图
-                pass
+            except Exception as exc:
+                prompt = (
+                    f"{prompt}. Reference-image edit fallback reason: {str(exc)[:180]}"
+                )
 
         scene_prompt = (
             f"{prompt}, cinematic storyboard frame, realistic film still, ultra detailed"

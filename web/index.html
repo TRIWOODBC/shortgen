@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ShortGen Studio</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/web/styles.css?v=20260416b" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <p class="eyebrow">ShortGen</p>
+        <h1>AI短剧工作台</h1>
+        <p class="muted">把剧情、分镜稿、角色图、分镜图和视频流程整理到一个地方。</p>
+      </div>
+
+      <section class="panel">
+        <h2>新建项目</h2>
+        <form id="create-project-form" class="stack">
+          <input id="project-name" name="name" placeholder="项目名，例如：南宋将军" required />
+          <textarea id="project-plot" name="plot" rows="4" placeholder="可以先填剧情，也可以先留空后面再写"></textarea>
+          <button type="submit">创建项目</button>
+        </form>
+      </section>
+
+      <section class="panel grow">
+        <div class="panel-head">
+          <h2>项目列表</h2>
+          <button id="refresh-projects" class="ghost">刷新</button>
+        </div>
+        <div id="projects-list" class="project-list"></div>
+      </section>
+    </aside>
+
+    <main class="workspace">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Workflow</p>
+          <div class="hero-title-row">
+            <h2 id="project-title">先从左边创建或选择一个项目</h2>
+            <button id="rename-project-btn" type="button" class="ghost">重命名项目</button>
+          </div>
+          <p id="project-meta" class="muted">第一版前端重点支持：剧情输入、分镜稿生成/导入、角色图生成/上传、分镜图生成。</p>
+        </div>
+        <div class="step-strip">
+          <div class="step-chip">1. 剧情</div>
+          <div class="step-chip">2. 分镜稿</div>
+          <div class="step-chip">3. 角色图</div>
+          <div class="step-chip">4. 分镜图</div>
+          <div class="step-chip disabled">5. 视频</div>
+          <div class="step-chip disabled">6. 合成</div>
+        </div>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>角色列表 / 角色资产</h2>
+            <span class="status-pill" id="manual-characters-status">支持手动上传</span>
+          </div>
+          <div class="grid compact">
+            <input id="manual-character-name" placeholder="角色名，例如：岳飞式将军" />
+          </div>
+          <textarea id="manual-character-description" rows="3" placeholder="角色外观描述。你也可以只写简单描述，后面再慢慢补。"></textarea>
+          <div class="actions">
+            <button id="add-manual-character-btn" class="secondary">新增手动角色</button>
+          </div>
+          <p class="muted small">你可以先手动建角色并上传角色图，也可以完全交给 AI 自动提角色。手动新增时角色 ID 会自动按 1、2、3 顺序编号。</p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>剧情输入</h2>
+            <span class="status-pill" id="plot-status">未选择项目</span>
+          </div>
+          <textarea id="plot-input" rows="9" placeholder="输入一段剧情，让 AI 自动生成分镜稿和角色信息"></textarea>
+          <div class="actions">
+            <button id="generate-storyboard-btn">AI 生成分镜稿</button>
+            <button id="create-manual-storyboard-btn" class="ghost">手动创建空白分镜稿</button>
+            <button id="import-storyboard-btn" class="ghost">导入分镜 JSON</button>
+            <a id="download-storyboard-link" class="ghost link-btn" href="#" target="_blank">下载当前分镜稿</a>
+          </div>
+          <input id="storyboard-file-input" type="file" accept=".json,application/json" hidden />
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>步骤操作</h2>
+            <span class="status-pill" id="pipeline-status">待开始</span>
+          </div>
+          <div class="slider-group">
+            <div class="slider-head">
+              <label for="scene-reference-scale">角色一致性强度</label>
+              <span id="scene-reference-scale-value" class="status-pill">0.30</span>
+            </div>
+            <input id="scene-reference-scale" type="range" min="0" max="1" step="0.05" value="0.3" />
+            <p class="muted small">越靠左越偏参考图，越靠右越偏文字描述。推荐先试 0.3。</p>
+          </div>
+          <div class="stack">
+            <button id="generate-characters-btn" class="secondary">生成角色图</button>
+            <button id="generate-scene-images-btn" class="secondary">生成分镜图</button>
+            <button id="save-storyboard-btn" class="ghost">保存当前分镜编辑</button>
+          </div>
+          <p class="muted small">第一版先把“可视化 + 可编辑 + 分步骤生成”搭起来。视频和最终合成下一步再继续接进来。</p>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>分镜稿编辑</h2>
+          <span class="status-pill" id="storyboard-status">暂无分镜稿</span>
+        </div>
+        <div class="grid two compact">
+          <input id="storyboard-title" placeholder="标题" />
+          <input id="storyboard-duration" type="number" step="0.1" placeholder="总时长" />
+        </div>
+        <textarea id="storyboard-summary" rows="3" placeholder="剧情摘要"></textarea>
+        <div class="actions">
+          <button id="add-scene-btn" class="ghost">新增场景</button>
+          <button id="delete-storyboard-btn" class="ghost danger">删除整份分镜稿</button>
+        </div>
+        <div id="scenes-editor" class="scene-list empty-state">还没有 scene，可以先生成或导入分镜稿。</div>
+      </section>
+
+      <section class="grid two">
+        <article class="panel">
+          <div class="panel-head">
+            <h2>角色列表</h2>
+            <span class="status-pill" id="characters-status">0 个角色</span>
+          </div>
+          <div id="characters-grid" class="asset-grid empty-state">角色会显示在这里。你也可以上传自己的角色图替换。</div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-head">
+            <h2>分镜图</h2>
+            <span class="status-pill" id="images-status">0 张分镜图</span>
+          </div>
+          <div id="scene-images-grid" class="asset-grid empty-state">分镜图会显示在这里。</div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="image-lightbox" class="lightbox hidden" aria-hidden="true">
+    <div class="lightbox-backdrop" data-lightbox-close="true"></div>
+    <div class="lightbox-dialog" role="dialog" aria-modal="true" aria-label="图片预览">
+      <button id="lightbox-close-btn" type="button" class="lightbox-close-btn" aria-label="关闭预览">×</button>
+      <img id="lightbox-image" src="" alt="预览图片" />
+    </div>
+  </div>
+
+  <script src="/web/app.js?v=20260416b"></script>
+</body>
+</html>

@@ -69,6 +69,24 @@ GENERATE_PLOT_PROMPT = """你是一个短视频编剧。根据以下热点新闻
 请输出一个200字左右的剧情描述，只输出剧情内容。"""
 
 
+CHARACTER_ASSIST_PROMPT = """你是一个专业的角色设定师和视觉提示词编辑。
+请根据用户提供的角色名称和已有描述，输出一份更适合 AI 生图与视频一致性控制的角色设定。
+
+请输出 JSON，格式如下：
+{
+  "name": "角色名称",
+  "description": "适合生成角色三视图和后续分镜图的详细角色描述，尽量具体，中文即可",
+  "visual_traits": ["视觉锚点1", "视觉锚点2", "视觉锚点3"]
+}
+
+要求：
+- 保留用户原始意图，不要乱改角色身份
+- 优先补足：年龄、气质、发型、服装、配色、体态、标志物
+- 如果是古装/短剧人物，强调便于镜头识别的强特征
+- 输出必须是合法 JSON
+"""
+
+
 class StoryboardGenerator:
     """分镜脚本生成器 — 支持 DeepSeek / GLM / Kimi / OpenAI 等"""
 
@@ -217,6 +235,7 @@ class StoryboardGenerator:
                 camera_movement=scene_data.get("camera_movement"),
                 mood=scene_data.get("mood"),
                 character_ids=scene_data.get("character_ids", []),
+                character_directions=scene_data.get("character_directions"),
                 reference_image=scene_data.get("reference_image"),
                 scene_image_path=scene_data.get("scene_image_path"),
                 dialogues=dialogues,
@@ -259,6 +278,30 @@ class StoryboardGenerator:
         )
 
         return response.choices[0].message.content.strip()
+
+    async def assist_character_description(self, name: str, description: str) -> dict:
+        """辅助扩写角色设定描述"""
+        user_prompt = f"""角色名称：{name}
+当前描述：{description or '暂无，用户希望你帮忙补全'}
+
+请输出 JSON。"""
+
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=1200,
+            messages=[
+                {"role": "system", "content": CHARACTER_ASSIST_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ]
+        )
+
+        content = response.choices[0].message.content
+        if "```json" in content:
+            content = content.split("```json")[1].split("```")[0]
+        elif "```" in content:
+            content = content.split("```")[1].split("```")[0]
+
+        return json.loads(content.strip())
 
     def save(self, storyboard: Storyboard, output_name: str = None) -> str:
         """保存分镜脚本到文件"""
@@ -314,6 +357,8 @@ class StoryboardGenerator:
                 lines.append(f"**氛围**: {scene.mood}")
             if scene.character_ids:
                 lines.append(f"**出场角色**: {', '.join(scene.character_ids)}")
+            if scene.character_directions:
+                lines.append(f"**角色分配说明**: {scene.character_directions}")
             if scene.scene_image_path:
                 lines.append(f"**分镜图**: `{scene.scene_image_path}`")
             if scene.reference_image:
