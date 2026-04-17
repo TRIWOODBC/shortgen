@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/web/styles.css?v=20260416b" />
+  <link rel="stylesheet" href="/web/styles.css?v=20260417a" />
 </head>
 <body>
   <div class="app-shell">
@@ -57,6 +57,83 @@
       </section>
 
       <section class="grid two">
+        <article class="panel api-config-panel">
+          <div class="panel-head">
+            <div>
+              <h2>API 配置</h2>
+              <p class="muted small">直接在前端填写并保存到本机，不会写进 git。</p>
+            </div>
+            <span class="status-pill" id="api-config-status">未读取</span>
+          </div>
+
+          <div class="api-section">
+            <h3>LLM</h3>
+            <div class="grid two compact">
+              <select id="api-llm-provider">
+                <option value="deepseek">deepseek</option>
+                <option value="glm">glm</option>
+                <option value="kimi">kimi</option>
+                <option value="openai">openai</option>
+                <option value="custom">custom</option>
+              </select>
+              <input id="api-llm-model" placeholder="模型名，例如 deepseek-chat" />
+            </div>
+            <div class="grid two compact">
+              <input id="api-llm-base-url" placeholder="Base URL，可留空自动使用预设" />
+              <input id="api-llm-api-key" type="password" placeholder="LLM API Key，留空表示保持不变" />
+            </div>
+          </div>
+
+          <div class="api-section">
+            <h3>即梦 / 火山引擎</h3>
+            <div class="grid two compact">
+              <select id="api-video-provider">
+                <option value="dreamina">dreamina</option>
+                <option value="auto">auto</option>
+                <option value="runway">runway</option>
+                <option value="pika">pika</option>
+              </select>
+              <input id="api-jimeng-model" placeholder="即梦模型，例如 jimeng_t2i_v40" />
+            </div>
+            <div class="grid two compact">
+              <input id="api-volc-access-key" type="password" placeholder="VOLC_ACCESS_KEY，留空表示保持不变" />
+              <input id="api-volc-secret-key" type="password" placeholder="VOLC_SECRET_KEY，留空表示保持不变" />
+            </div>
+            <div class="grid two compact">
+              <input id="api-character-image-provider" placeholder="角色生图 provider，例如 signed_aksk" />
+              <input id="api-character-image-model" placeholder="角色生图模型，例如 jimeng_t2i_v40" />
+            </div>
+            <div class="grid two compact">
+              <input id="api-ark-base-url" placeholder="ARK Base URL" />
+              <input id="api-ark-api-key" type="password" placeholder="ARK API Key，留空表示保持不变" />
+            </div>
+            <input id="api-public-asset-base-url" placeholder="公网资源前缀，例如 https://xxx.ngrok-free.dev" />
+          </div>
+
+          <div class="api-section">
+            <h3>备用视频平台</h3>
+            <div class="grid two compact">
+              <input id="api-runway-api-key" type="password" placeholder="RUNWAY_API_KEY，留空表示保持不变" />
+              <input id="api-pika-api-key" type="password" placeholder="PIKA_API_KEY，留空表示保持不变" />
+            </div>
+          </div>
+
+          <div class="api-section">
+            <h3>可选音频</h3>
+            <div class="grid two compact">
+              <input id="api-volc-tts-app-id" placeholder="VOLC_TTS_APP_ID" />
+              <input id="api-volc-tts-default-voice" placeholder="VOLC_TTS_DEFAULT_VOICE" />
+            </div>
+            <input id="api-volc-tts-access-token" type="password" placeholder="VOLC_TTS_ACCESS_TOKEN，留空表示保持不变" />
+          </div>
+
+          <div class="actions">
+            <button id="save-api-config-btn" type="button">保存 API 配置</button>
+            <button id="reload-api-config-btn" type="button" class="ghost">重新读取</button>
+          </div>
+          <p class="muted small">密钥字段出于安全原因不会回显；如果已经配置过，留空保存即可继续沿用当前值。</p>
+        </article>
+
         <article class="panel">
           <div class="panel-head">
             <h2>角色列表 / 角色资产</h2>
@@ -154,6 +231,6 @@
     </div>
   </div>
 
-  <script src="/web/app.js?v=20260416b"></script>
+  <script src="/web/app.js?v=20260417a"></script>
 </body>
 </html>

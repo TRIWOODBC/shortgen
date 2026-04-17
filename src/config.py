@@ -3,8 +3,11 @@ from pathlib import Path
 from dataclasses import dataclass
 from dotenv import load_dotenv
 
+from src.runtime_settings import apply_runtime_config_to_env
+
 
 load_dotenv()
+apply_runtime_config_to_env()
 
 # 预设的 LLM 平台配置
 LLM_PRESETS = {

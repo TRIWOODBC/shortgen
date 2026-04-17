@@ -2,6 +2,7 @@ const state = {
   projects: [],
   selectedProjectId: null,
   currentStoryboard: null,
+  apiConfig: null,
 };
 
 const el = {
@@ -30,10 +31,62 @@ const el = {
   renameProjectBtn: document.getElementById("rename-project-btn"),
   sceneReferenceScale: document.getElementById("scene-reference-scale"),
   sceneReferenceScaleValue: document.getElementById("scene-reference-scale-value"),
+  apiConfigStatus: document.getElementById("api-config-status"),
+  saveApiConfigBtn: document.getElementById("save-api-config-btn"),
+  reloadApiConfigBtn: document.getElementById("reload-api-config-btn"),
+  apiLlmProvider: document.getElementById("api-llm-provider"),
+  apiLlmApiKey: document.getElementById("api-llm-api-key"),
+  apiLlmBaseUrl: document.getElementById("api-llm-base-url"),
+  apiLlmModel: document.getElementById("api-llm-model"),
+  apiVideoProvider: document.getElementById("api-video-provider"),
+  apiVolcAccessKey: document.getElementById("api-volc-access-key"),
+  apiVolcSecretKey: document.getElementById("api-volc-secret-key"),
+  apiJimengModel: document.getElementById("api-jimeng-model"),
+  apiRunwayApiKey: document.getElementById("api-runway-api-key"),
+  apiPikaApiKey: document.getElementById("api-pika-api-key"),
+  apiCharacterImageProvider: document.getElementById("api-character-image-provider"),
+  apiCharacterImageModel: document.getElementById("api-character-image-model"),
+  apiPublicAssetBaseUrl: document.getElementById("api-public-asset-base-url"),
+  apiArkApiKey: document.getElementById("api-ark-api-key"),
+  apiArkBaseUrl: document.getElementById("api-ark-base-url"),
+  apiVolcTtsAccessToken: document.getElementById("api-volc-tts-access-token"),
+  apiVolcTtsAppId: document.getElementById("api-volc-tts-app-id"),
+  apiVolcTtsDefaultVoice: document.getElementById("api-volc-tts-default-voice"),
   lightbox: document.getElementById("image-lightbox"),
   lightboxImage: document.getElementById("lightbox-image"),
   lightboxCloseBtn: document.getElementById("lightbox-close-btn"),
 };
+
+const API_FIELD_MAP = [
+  ["LLM_PROVIDER", "apiLlmProvider"],
+  ["LLM_API_KEY", "apiLlmApiKey"],
+  ["LLM_BASE_URL", "apiLlmBaseUrl"],
+  ["LLM_MODEL", "apiLlmModel"],
+  ["VIDEO_PROVIDER", "apiVideoProvider"],
+  ["VOLC_ACCESS_KEY", "apiVolcAccessKey"],
+  ["VOLC_SECRET_KEY", "apiVolcSecretKey"],
+  ["JIMENG_MODEL", "apiJimengModel"],
+  ["RUNWAY_API_KEY", "apiRunwayApiKey"],
+  ["PIKA_API_KEY", "apiPikaApiKey"],
+  ["CHARACTER_IMAGE_PROVIDER", "apiCharacterImageProvider"],
+  ["CHARACTER_IMAGE_MODEL", "apiCharacterImageModel"],
+  ["PUBLIC_ASSET_BASE_URL", "apiPublicAssetBaseUrl"],
+  ["ARK_API_KEY", "apiArkApiKey"],
+  ["ARK_BASE_URL", "apiArkBaseUrl"],
+  ["VOLC_TTS_ACCESS_TOKEN", "apiVolcTtsAccessToken"],
+  ["VOLC_TTS_APP_ID", "apiVolcTtsAppId"],
+  ["VOLC_TTS_DEFAULT_VOICE", "apiVolcTtsDefaultVoice"],
+];
+
+const SECRET_API_FIELDS = new Set([
+  "LLM_API_KEY",
+  "VOLC_ACCESS_KEY",
+  "VOLC_SECRET_KEY",
+  "RUNWAY_API_KEY",
+  "PIKA_API_KEY",
+  "ARK_API_KEY",
+  "VOLC_TTS_ACCESS_TOKEN",
+]);
 
 async function request(url, options = {}) {
   const response = await fetch(url, options);
@@ -76,6 +129,77 @@ function getSceneReferenceScale() {
 function updateSceneReferenceScaleLabel() {
   if (!el.sceneReferenceScaleValue || !el.sceneReferenceScale) return;
   el.sceneReferenceScaleValue.textContent = getSceneReferenceScale().toFixed(2);
+}
+
+function setApiConfigStatus(text) {
+  if (el.apiConfigStatus) {
+    el.apiConfigStatus.textContent = text;
+  }
+}
+
+function applyApiConfigToForm(data) {
+  state.apiConfig = data;
+  const values = data?.values || {};
+  const configured = data?.configured || {};
+
+  API_FIELD_MAP.forEach(([field, elementKey]) => {
+    const input = el[elementKey];
+    if (!input) return;
+
+    if (SECRET_API_FIELDS.has(field)) {
+      input.value = "";
+      input.placeholder = configured[field]
+        ? `${field} 已配置，留空则保持不变`
+        : `${field}，留空表示暂不配置`;
+      return;
+    }
+
+    input.value = values[field] || "";
+  });
+
+  const configuredSecrets = Object.entries(configured)
+    .filter(([, value]) => Boolean(value))
+    .length;
+  setApiConfigStatus(`已读取 · ${configuredSecrets} 个密钥已配置`);
+}
+
+function collectApiConfigPayload() {
+  const settings = {};
+
+  API_FIELD_MAP.forEach(([field, elementKey]) => {
+    const input = el[elementKey];
+    if (!input) return;
+
+    const value = input.value.trim();
+    if (SECRET_API_FIELDS.has(field)) {
+      settings[field] = value;
+    } else {
+      settings[field] = value;
+    }
+  });
+
+  return { settings };
+}
+
+async function loadApiConfig() {
+  setApiConfigStatus("正在读取...");
+  const result = await runAction(() => request("/api/settings/api"), "读取 API 配置失败");
+  if (!result) return;
+  applyApiConfigToForm(result);
+}
+
+async function saveApiConfig() {
+  setApiConfigStatus("正在保存...");
+  const payload = collectApiConfigPayload();
+  const result = await runAction(() => request("/api/settings/api", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }), "保存 API 配置失败");
+  if (!result) return;
+
+  applyApiConfigToForm(result);
+  setApiConfigStatus("已保存到本机");
 }
 
 function openLightbox(src, alt = "预览图片") {
@@ -720,6 +844,8 @@ el.addSceneBtn.addEventListener("click", addScene);
 el.deleteStoryboardBtn.addEventListener("click", deleteStoryboard);
 el.renameProjectBtn.addEventListener("click", renameProject);
 el.sceneReferenceScale.addEventListener("input", updateSceneReferenceScaleLabel);
+el.saveApiConfigBtn.addEventListener("click", saveApiConfig);
+el.reloadApiConfigBtn.addEventListener("click", loadApiConfig);
 el.lightboxCloseBtn.addEventListener("click", closeLightbox);
 el.lightbox.addEventListener("click", (event) => {
   if (event.target.dataset.lightboxClose === "true") {
@@ -738,4 +864,5 @@ el.deleteStoryboardBtn.disabled = true;
 el.renameProjectBtn.disabled = true;
 updateSceneReferenceScaleLabel();
 
+loadApiConfig();
 refreshProjects();

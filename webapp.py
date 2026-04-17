@@ -34,6 +34,7 @@ from src.project_store import (
     slugify_project_name,
     sync_next_character_id,
 )
+from src.runtime_settings import CONFIG_FIELDS, get_api_settings_payload, save_runtime_config
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -79,6 +80,10 @@ class ManualStoryboardRequest(BaseModel):
     title: str = Field(default="未命名分镜项目")
     summary: str = Field(default="")
     plot: str = Field(default="")
+
+
+class ApiSettingsUpdateRequest(BaseModel):
+    settings: dict[str, str | None]
 
 
 def _web_path(relative_path: str | None) -> str | None:
@@ -260,6 +265,25 @@ def _upsert_character(
 async def index() -> HTMLResponse:
     html_path = WEB_DIR / "index.html"
     return HTMLResponse(html_path.read_text(encoding="utf-8"))
+
+
+@app.get("/api/settings/api")
+async def api_get_settings() -> dict[str, Any]:
+    return get_api_settings_payload()
+
+
+@app.put("/api/settings/api")
+async def api_update_settings(payload: ApiSettingsUpdateRequest) -> dict[str, Any]:
+    unknown = [key for key in payload.settings.keys() if key not in CONFIG_FIELDS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"不支持的配置项: {', '.join(sorted(unknown))}")
+
+    save_runtime_config(payload.settings)
+    return {
+        "ok": True,
+        "message": "API 配置已保存到本地运行配置文件",
+        **get_api_settings_payload(),
+    }
 
 
 @app.get("/api/projects")

@@ -153,6 +153,19 @@ h1, h2, h3 {
   margin-bottom: 16px;
 }
 
+.api-config-panel {
+  grid-column: 1 / -1;
+}
+
+.api-section + .api-section {
+  margin-top: 18px;
+}
+
+.api-section h3 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
 .slider-head {
   display: flex;
   align-items: center;
@@ -233,6 +246,13 @@ button.danger:hover,
 .link-btn.danger:hover {
   background: rgba(190, 63, 45, 0.12);
   color: #6e1711;
+}
+
+button:disabled,
+.link-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
 }
 
 .actions {
