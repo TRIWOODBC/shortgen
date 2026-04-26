@@ -60,6 +60,7 @@ class Scene(BaseModel):
     )
     reference_image: Optional[str] = Field(None, description="角色参考图片路径（图生视频时）")
     scene_image_path: Optional[str] = Field(None, description="场景分镜图路径")
+    video_path: Optional[str] = Field(None, description="场景视频路径")
     dialogues: List[Dialogue] = Field(default_factory=list, description="对话列表")
     narration: Optional[str] = Field(None, description="旁白文本")
     audio_configs: List[AudioConfig] = Field(default_factory=list, description="音频配置列表")

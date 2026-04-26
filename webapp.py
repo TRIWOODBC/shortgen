@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from main import setup_directories
 from src.character_manager import CharacterManager
 from src.scene_image_gen import SceneImageGenerator
+from src.video_gen import VideoGenerator
 from src.storyboard import StoryboardGenerator
 from src.models import Character, Scene, Storyboard
 from src.project_store import (
@@ -125,6 +126,7 @@ def _summary_with_web_assets(project_id: str) -> dict[str, Any]:
         for scene in storyboard.get("scenes", []):
             scene["scene_image_url"] = _to_media_url(scene.get("scene_image_path"))
             scene["reference_image_url"] = _to_media_url(scene.get("reference_image"))
+            scene["video_url"] = _to_media_url(scene.get("video_path"))
 
     for character in summary.get("manual_characters", []):
         character["image_url"] = _to_media_url(character.get("image_path"))
@@ -429,6 +431,7 @@ async def api_delete_storyboard(project_id: str) -> dict[str, Any]:
 
     for scene in storyboard.scenes:
         delete_project_file(scene.scene_image_path)
+        delete_project_file(scene.video_path)
 
     delete_storyboard_files(project_id)
     return _summary_with_web_assets(project_id)
@@ -702,6 +705,85 @@ async def api_delete_scene_image(project_id: str, scene_number: int) -> dict[str
         delete_project_file(scene.scene_image_path)
         scene.scene_image_path = None
         scene.reference_image = None
+        matched = True
+        break
+
+    if not matched:
+        raise HTTPException(status_code=404, detail="场景不存在")
+
+    set_project_environment(project_id)
+    StoryboardGenerator().save(storyboard, project_id)
+    return _summary_with_web_assets(project_id)
+
+
+@app.post("/api/projects/{project_id}/videos/generate")
+async def api_generate_videos(
+    project_id: str,
+    regenerate: bool = Form(default=False),
+) -> dict[str, Any]:
+    storyboard = load_storyboard(project_id)
+    if not storyboard:
+        raise HTTPException(status_code=400, detail="请先生成、导入或手动创建分镜稿")
+
+    set_project_environment(project_id)
+    setup_directories()
+
+    if regenerate:
+        for scene in storyboard.scenes:
+            delete_project_file(scene.video_path)
+            scene.video_path = None
+
+    generator = VideoGenerator(provider="auto")
+    results = await generator.generate_from_storyboard(
+        storyboard,
+        output_name=project_id,
+    )
+
+    failed_results = [result for result in results if result.status != "success"]
+    for result in results:
+        if result.status != "success":
+            continue
+
+        for scene in storyboard.scenes:
+            if scene.scene_number == result.scene_number:
+                scene.video_path = result.file_path
+                break
+
+    StoryboardGenerator().save(storyboard, project_id)
+
+    if failed_results:
+        details = [
+            {
+                "scene_number": result.scene_number,
+                "status": result.status,
+                "error_message": result.error_message,
+            }
+            for result in failed_results
+        ]
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "视频生成部分失败",
+                "results": details,
+            },
+        )
+
+    return _summary_with_web_assets(project_id)
+
+
+@app.delete("/api/projects/{project_id}/videos/{scene_number}")
+async def api_delete_video(project_id: str, scene_number: int) -> dict[str, Any]:
+    storyboard = load_storyboard(project_id)
+    if not storyboard:
+        raise HTTPException(status_code=400, detail="请先生成、导入或手动创建分镜稿")
+
+    matched = False
+    for scene in storyboard.scenes:
+        if scene.scene_number != scene_number:
+            continue
+
+        delete_project_file(scene.video_path)
+        scene.video_path = None
         matched = True
         break
 

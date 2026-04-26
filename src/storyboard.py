@@ -86,7 +86,6 @@ CHARACTER_ASSIST_PROMPT = """你是一个专业的角色设定师和视觉提示
 - 输出必须是合法 JSON
 """
 
-
 class StoryboardGenerator:
     """分镜脚本生成器 — 支持 DeepSeek / GLM / Kimi / OpenAI 等"""
 
@@ -363,6 +362,8 @@ class StoryboardGenerator:
                 lines.append(f"**分镜图**: `{scene.scene_image_path}`")
             if scene.reference_image:
                 lines.append(f"**视频参考图**: `{scene.reference_image}`")
+            if scene.video_path:
+                lines.append(f"**视频片段**: `{scene.video_path}`")
             lines.append("")
 
         return "\n".join(lines)

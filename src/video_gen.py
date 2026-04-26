@@ -113,9 +113,12 @@ class VideoGenerator:
         return f"{prefix}_scene{scene.scene_number}"
 
     def _get_reference_image(self, scene: Scene, storyboard: Storyboard) -> Optional[str]:
-        """优先使用场景显式参考图，否则回退到第一个角色的参考图"""
+        """优先使用场景参考图/分镜图，否则回退到角色参考图"""
         if scene.reference_image and Path(scene.reference_image).exists():
             return scene.reference_image
+
+        if scene.scene_image_path and Path(scene.scene_image_path).exists():
+            return scene.scene_image_path
 
         if not scene.character_ids:
             return None

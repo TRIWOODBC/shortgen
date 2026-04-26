@@ -13,7 +13,7 @@ apply_runtime_config_to_env()
 LLM_PRESETS = {
     "deepseek": {
         "base_url": "https://api.deepseek.com",
-        "model": "deepseek-chat",
+        "model": "deepseek-v4-flash",
     },
     "glm": {
         "base_url": "https://open.bigmodel.cn/api/paas/v4/",

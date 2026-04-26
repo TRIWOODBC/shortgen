@@ -3,9 +3,27 @@ const state = {
   selectedProjectId: null,
   currentStoryboard: null,
   apiConfig: null,
+  currentView: "workbench",
+  currentStage: "overview",
 };
 
 const el = {
+  workbenchView: document.getElementById("workbench-view"),
+  apiSettingsView: document.getElementById("api-settings-view"),
+  showWorkbenchBtn: document.getElementById("show-workbench-btn"),
+  showApiSettingsBtn: document.getElementById("show-api-settings-btn"),
+  workflowSteps: document.querySelectorAll("[data-stage]"),
+  stageJumpButtons: document.querySelectorAll("[data-stage-jump]"),
+  stageOverview: document.getElementById("stage-overview"),
+  stageStoryboard: document.getElementById("stage-storyboard"),
+  stageCharacters: document.getElementById("stage-characters"),
+  stageSceneImages: document.getElementById("stage-scene-images"),
+  stageVideos: document.getElementById("stage-videos"),
+  overviewScenesCount: document.getElementById("overview-scenes-count"),
+  overviewCharactersCount: document.getElementById("overview-characters-count"),
+  overviewAssetsCount: document.getElementById("overview-assets-count"),
+  overviewProjectName: document.getElementById("overview-project-name"),
+  overviewProjectPlot: document.getElementById("overview-project-plot"),
   projectsList: document.getElementById("projects-list"),
   projectTitle: document.getElementById("project-title"),
   projectMeta: document.getElementById("project-meta"),
@@ -16,6 +34,7 @@ const el = {
   manualCharactersStatus: document.getElementById("manual-characters-status"),
   manualCharacterName: document.getElementById("manual-character-name"),
   manualCharacterDescription: document.getElementById("manual-character-description"),
+  assistNewCharacterBtn: document.getElementById("assist-new-character-btn"),
   storyboardTitle: document.getElementById("storyboard-title"),
   storyboardSummary: document.getElementById("storyboard-summary"),
   storyboardDuration: document.getElementById("storyboard-duration"),
@@ -23,14 +42,17 @@ const el = {
   scenesEditor: document.getElementById("scenes-editor"),
   charactersGrid: document.getElementById("characters-grid"),
   sceneImagesGrid: document.getElementById("scene-images-grid"),
+  videosGrid: document.getElementById("videos-grid"),
   charactersStatus: document.getElementById("characters-status"),
   imagesStatus: document.getElementById("images-status"),
+  videosStatus: document.getElementById("videos-status"),
   downloadStoryboardLink: document.getElementById("download-storyboard-link"),
   storyboardFileInput: document.getElementById("storyboard-file-input"),
   deleteStoryboardBtn: document.getElementById("delete-storyboard-btn"),
   renameProjectBtn: document.getElementById("rename-project-btn"),
   sceneReferenceScale: document.getElementById("scene-reference-scale"),
   sceneReferenceScaleValue: document.getElementById("scene-reference-scale-value"),
+  generateVideosBtn: document.getElementById("generate-videos-btn"),
   apiConfigStatus: document.getElementById("api-config-status"),
   saveApiConfigBtn: document.getElementById("save-api-config-btn"),
   reloadApiConfigBtn: document.getElementById("reload-api-config-btn"),
@@ -135,6 +157,39 @@ function setApiConfigStatus(text) {
   if (el.apiConfigStatus) {
     el.apiConfigStatus.textContent = text;
   }
+}
+
+function switchView(viewName) {
+  state.currentView = viewName;
+  const isWorkbench = viewName === "workbench";
+
+  el.workbenchView?.classList.toggle("hidden", !isWorkbench);
+  el.apiSettingsView?.classList.toggle("hidden", isWorkbench);
+
+  el.showWorkbenchBtn?.classList.toggle("active", isWorkbench);
+  el.showWorkbenchBtn?.classList.toggle("ghost", !isWorkbench);
+  el.showApiSettingsBtn?.classList.toggle("active", !isWorkbench);
+  el.showApiSettingsBtn?.classList.toggle("ghost", isWorkbench);
+}
+
+function switchStage(stageName) {
+  state.currentStage = stageName;
+  const stageMap = {
+    overview: el.stageOverview,
+    storyboard: el.stageStoryboard,
+    characters: el.stageCharacters,
+    "scene-images": el.stageSceneImages,
+    videos: el.stageVideos,
+  };
+
+  Object.entries(stageMap).forEach(([key, node]) => {
+    node?.classList.toggle("hidden", key !== stageName);
+  });
+
+  el.workflowSteps.forEach((button) => {
+    const active = button.dataset.stage === stageName;
+    button.classList.toggle("active", active);
+  });
 }
 
 function applyApiConfigToForm(data) {
@@ -250,7 +305,7 @@ function renderProjects() {
         </button>
       </div>
       <p>${escapeHtml((project.plot || "还没有剧情").slice(0, 56))}</p>
-      <p>${project.counts.scenes} 个分镜 · ${project.counts.characters} 个角色 · ${project.counts.images} 张分镜图</p>
+      <p>${project.counts.scenes} 个分镜 · ${project.counts.characters} 个角色 · ${project.counts.images} 张分镜图 · ${project.counts.videos} 个视频</p>
     </div>
   `).join("");
 
@@ -430,6 +485,37 @@ function renderSceneImages(project) {
   bindPreviewImages();
 }
 
+function renderVideos(project) {
+  const scenes = project?.storyboard?.scenes || [];
+  const videoScenes = scenes.filter((scene) => scene.video_path);
+  el.videosStatus.textContent = `${videoScenes.length} 个视频`;
+
+  if (!videoScenes.length) {
+    el.videosGrid.className = "asset-grid empty-state";
+    el.videosGrid.innerHTML = "生成的视频会显示在这里。";
+    return;
+  }
+
+  el.videosGrid.className = "asset-grid";
+  el.videosGrid.innerHTML = videoScenes.map((scene) => `
+    <div class="asset-card scene">
+      <video src="${scene.video_url}" controls preload="metadata" playsinline></video>
+      <h3>场景 ${scene.scene_number}</h3>
+      <p class="muted small">${escapeHtml(scene.description || "")}</p>
+      <div class="inline-actions">
+        <a class="ghost link-btn" href="${scene.video_url}" target="_blank" rel="noopener noreferrer">打开视频</a>
+        <button type="button" class="ghost danger" data-video-delete="${scene.scene_number}">删除视频</button>
+      </div>
+    </div>
+  `).join("");
+
+  document.querySelectorAll("[data-video-delete]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await deleteVideo(Number(button.dataset.videoDelete));
+    });
+  });
+}
+
 function collectStoryboardFromEditor() {
   const project = selectedProject();
   if (!project?.storyboard) return null;
@@ -477,11 +563,17 @@ function renderProjectDetail(project) {
     el.plotStatus.textContent = "未选择项目";
     el.pipelineStatus.textContent = "待开始";
     el.storyboardStatus.textContent = "暂无分镜稿";
+    el.overviewScenesCount.textContent = "0 个分镜";
+    el.overviewCharactersCount.textContent = "0 个角色";
+    el.overviewAssetsCount.textContent = "0 张图 / 0 个视频";
+    el.overviewProjectName.textContent = "还没有选中项目";
+    el.overviewProjectPlot.textContent = "先从左侧创建或选择一个项目。";
     el.downloadStoryboardLink.href = "#";
     el.renameProjectBtn.disabled = true;
     renderStoryboardEditor(null);
     renderCharacters(null);
     renderSceneImages(null);
+    renderVideos(null);
     return;
   }
 
@@ -490,14 +582,20 @@ function renderProjectDetail(project) {
   el.projectMeta.textContent = project.plot || "你可以输入剧情让 AI 自动拆分，也可以导入你自己的分镜稿和角色图。";
   el.plotInput.value = project.plot || "";
   el.plotStatus.textContent = project.plot ? "剧情已填写" : "等待输入剧情";
-  el.pipelineStatus.textContent = `${project.counts.scenes} 个分镜 / ${project.counts.characters} 个角色 / ${project.counts.images} 张分镜图`;
+  el.pipelineStatus.textContent = `${project.counts.scenes} 个分镜 / ${project.counts.characters} 个角色 / ${project.counts.images} 张分镜图 / ${project.counts.videos} 个视频`;
   el.storyboardStatus.textContent = project.storyboard ? "已加载分镜稿" : "暂无分镜稿";
+  el.overviewScenesCount.textContent = `${project.counts.scenes} 个分镜`;
+  el.overviewCharactersCount.textContent = `${project.counts.characters} 个角色`;
+  el.overviewAssetsCount.textContent = `${project.counts.images} 张图 / ${project.counts.videos} 个视频`;
+  el.overviewProjectName.textContent = project.name;
+  el.overviewProjectPlot.textContent = project.plot || "你可以先去分镜稿页输入剧情，再逐步生成角色图、分镜图和视频。";
   el.downloadStoryboardLink.href = `/api/projects/${project.id}/storyboard/export`;
   el.renameProjectBtn.disabled = false;
   el.deleteStoryboardBtn.disabled = !project.storyboard;
   renderStoryboardEditor(project.storyboard);
   renderCharacters(project);
   renderSceneImages(project);
+  renderVideos(project);
 }
 
 async function selectProject(projectId, fetchSingle = true) {
@@ -596,8 +694,37 @@ async function assistCharacter(characterId) {
   const nameInput = document.querySelector(`[data-character-name="${characterId}"]`);
   const descriptionInput = document.querySelector(`[data-character-description="${characterId}"]`);
   if (nameInput && result.name) nameInput.value = result.name;
-  if (descriptionInput && result.description) descriptionInput.value = result.description;
+  if (descriptionInput && result.description) {
+    let text = result.description;
+    if (result.visual_traits?.length) {
+      text += `\n\n视觉特征：${result.visual_traits.join("、")}`;
+    }
+    descriptionInput.value = text;
+  }
   el.pipelineStatus.textContent = "AI 辅助完成，你可以继续修改后再保存";
+}
+
+async function assistNewCharacter() {
+  const project = selectedProject();
+  if (!project) return alert("请先选择项目");
+  const name = el.manualCharacterName.value.trim();
+  const description = el.manualCharacterDescription.value.trim();
+  if (!name) return alert("请先填写角色名");
+
+  el.pipelineStatus.textContent = `AI 正在辅助优化角色：${name}`;
+  const result = await runAction(() => request(`/api/projects/${project.id}/characters/assist-description`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description }),
+  }), "AI 辅助角色描述失败");
+  if (!result) return;
+
+  if (result.name) el.manualCharacterName.value = result.name;
+  if (result.description) el.manualCharacterDescription.value = result.description;
+  if (result.visual_traits?.length) {
+    el.manualCharacterDescription.value += `\n\n视觉特征：${result.visual_traits.join("、")}`;
+  }
+  el.pipelineStatus.textContent = "AI 辅助完成，你可以继续修改后再新增";
 }
 
 async function saveCharacter(characterId) {
@@ -762,6 +889,22 @@ async function generateSceneImages() {
   await refreshProjects(project.id);
 }
 
+async function generateVideos() {
+  const project = selectedProject();
+  if (!project) return alert("请先选择项目");
+  if (!project.storyboard?.scenes?.length) return alert("请先准备好分镜稿");
+
+  const formData = new FormData();
+  formData.set("regenerate", "true");
+  el.pipelineStatus.textContent = "正在生成视频...";
+  const result = await runAction(() => request(`/api/projects/${project.id}/videos/generate`, {
+    method: "POST",
+    body: formData,
+  }), "生成视频失败");
+  if (!result) return;
+  await refreshProjects(project.id);
+}
+
 async function uploadCharacterImage(characterId, file) {
   const project = selectedProject();
   if (!project || !file) return;
@@ -803,6 +946,19 @@ async function deleteSceneImage(sceneNumber) {
   await refreshProjects(project.id);
 }
 
+async function deleteVideo(sceneNumber) {
+  const project = selectedProject();
+  if (!project) return alert("请先选择项目");
+  if (!window.confirm(`确认删除场景 ${sceneNumber} 的视频吗？`)) return;
+
+  el.pipelineStatus.textContent = `正在删除场景 ${sceneNumber} 的视频...`;
+  const result = await runAction(() => request(`/api/projects/${project.id}/videos/${sceneNumber}`, {
+    method: "DELETE",
+  }), "删除视频失败");
+  if (!result) return;
+  await refreshProjects(project.id);
+}
+
 async function importStoryboard(file) {
   const project = selectedProject();
   if (!project || !file) return;
@@ -835,17 +991,27 @@ async function deleteProject(projectId) {
 document.getElementById("create-project-form").addEventListener("submit", createProject);
 document.getElementById("refresh-projects").addEventListener("click", () => refreshProjects());
 document.getElementById("add-manual-character-btn").addEventListener("click", addManualCharacter);
+el.assistNewCharacterBtn.addEventListener("click", assistNewCharacter);
 document.getElementById("generate-storyboard-btn").addEventListener("click", generateStoryboard);
 document.getElementById("create-manual-storyboard-btn").addEventListener("click", createManualStoryboard);
 document.getElementById("save-storyboard-btn").addEventListener("click", saveStoryboard);
 document.getElementById("generate-characters-btn").addEventListener("click", generateCharacters);
 document.getElementById("generate-scene-images-btn").addEventListener("click", generateSceneImages);
+el.generateVideosBtn.addEventListener("click", generateVideos);
 el.addSceneBtn.addEventListener("click", addScene);
 el.deleteStoryboardBtn.addEventListener("click", deleteStoryboard);
 el.renameProjectBtn.addEventListener("click", renameProject);
 el.sceneReferenceScale.addEventListener("input", updateSceneReferenceScaleLabel);
 el.saveApiConfigBtn.addEventListener("click", saveApiConfig);
 el.reloadApiConfigBtn.addEventListener("click", loadApiConfig);
+el.showWorkbenchBtn.addEventListener("click", () => switchView("workbench"));
+el.showApiSettingsBtn.addEventListener("click", () => switchView("api-settings"));
+el.workflowSteps.forEach((button) => {
+  button.addEventListener("click", () => switchStage(button.dataset.stage));
+});
+el.stageJumpButtons.forEach((button) => {
+  button.addEventListener("click", () => switchStage(button.dataset.stageJump));
+});
 el.lightboxCloseBtn.addEventListener("click", closeLightbox);
 el.lightbox.addEventListener("click", (event) => {
   if (event.target.dataset.lightboxClose === "true") {
@@ -863,6 +1029,8 @@ el.storyboardFileInput.addEventListener("change", (event) => importStoryboard(ev
 el.deleteStoryboardBtn.disabled = true;
 el.renameProjectBtn.disabled = true;
 updateSceneReferenceScaleLabel();
+switchView("workbench");
+switchStage("overview");
 
 loadApiConfig();
 refreshProjects();
