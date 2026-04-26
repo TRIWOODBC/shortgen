@@ -132,6 +132,22 @@ async function runAction(action, fallbackMessage = "操作失败") {
   }
 }
 
+function withLoading(buttonId, action) {
+  return async () => {
+    const btn = document.getElementById(buttonId);
+    if (!btn) return action();
+    const originalText = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "生成中…";
+    try {
+      return await action();
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  };
+}
+
 function escapeHtml(text = "") {
   return text
     .replaceAll("&", "&amp;")
@@ -992,12 +1008,12 @@ document.getElementById("create-project-form").addEventListener("submit", create
 document.getElementById("refresh-projects").addEventListener("click", () => refreshProjects());
 document.getElementById("add-manual-character-btn").addEventListener("click", addManualCharacter);
 el.assistNewCharacterBtn.addEventListener("click", assistNewCharacter);
-document.getElementById("generate-storyboard-btn").addEventListener("click", generateStoryboard);
+document.getElementById("generate-storyboard-btn").addEventListener("click", withLoading("generate-storyboard-btn", generateStoryboard));
 document.getElementById("create-manual-storyboard-btn").addEventListener("click", createManualStoryboard);
 document.getElementById("save-storyboard-btn").addEventListener("click", saveStoryboard);
-document.getElementById("generate-characters-btn").addEventListener("click", generateCharacters);
-document.getElementById("generate-scene-images-btn").addEventListener("click", generateSceneImages);
-el.generateVideosBtn.addEventListener("click", generateVideos);
+document.getElementById("generate-characters-btn").addEventListener("click", withLoading("generate-characters-btn", generateCharacters));
+document.getElementById("generate-scene-images-btn").addEventListener("click", withLoading("generate-scene-images-btn", generateSceneImages));
+el.generateVideosBtn.addEventListener("click", withLoading("generate-videos-btn", generateVideos));
 el.addSceneBtn.addEventListener("click", addScene);
 el.deleteStoryboardBtn.addEventListener("click", deleteStoryboard);
 el.renameProjectBtn.addEventListener("click", renameProject);

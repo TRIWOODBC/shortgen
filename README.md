@@ -36,11 +36,13 @@ ShortGen 是一个本地 CLI 项目，用来把一段剧情自动变成短视频
 
 - Python 3.10+
 - `ffmpeg` 已安装并可在命令行直接调用
+- `ngrok`（可选但推荐，用于分镜图生成时保持角色一致性，详见下方配置说明）
 
-macOS 安装 FFmpeg：
+macOS 安装依赖：
 
 ```bash
 brew install ffmpeg
+brew install ngrok  # 或用官网下载: https://ngrok.com/download
 ```
 
 ## 安装
@@ -152,20 +154,45 @@ CHARACTER_IMAGE_MODEL=jimeng_t2i_v40
 
 也就是说，如果你已经配好了即梦视频 AK/SK，通常不需要再额外给角色图单独配一套鉴权。
 
-如果你要让“上传角色图 + 分镜文本 -> 分镜图”这条链路真正使用即梦 4.0 的参考图能力，还需要额外配置：
+#### ⚠️ 关键：配公网地址才能保持角色一致
+
+要让角色图在分镜图生成中生效（角色长相不串），**必须配置公网资源前缀**：
 
 ```env
 PUBLIC_ASSET_BASE_URL=https://your-public-host/media
 ```
 
-原因是即梦图片 4.0 文档里的参考图字段是 `image_urls`，也就是公网可访问 URL，不是本地文件路径。
+原因是即梦图片 4.0 的参考图接口只接受公网可访问 URL，不接受本地文件路径。
 
-你可以用：
+开发阶段可以用 `ngrok` 把本地 `output` 目录暴露出去：
 
-- 你自己的对象存储/CDN
-- 或者开发阶段先用 `ngrok` / 类似穿透服务把本地 `output` 暴露出去
+```bash
+# 终端 1：启动项目
+uvicorn webapp:app --reload
 
-如果你要改成 Ark 图片接口，再填写：
+# 终端 2：启动 ngrok（把 output 目录暴露给即梦）
+ngrok http 8000
+```
+
+把 ngrok 显示的地址填进 `PUBLIC_ASSET_BASE_URL`，加上 `/media` 后缀：
+
+```
+PUBLIC_ASSET_BASE_URL=https://xxxx.ngrok-free.dev/media
+```
+
+**注意：ngrok 隧道关闭或重启后地址会变，需要同步更新配置。** ngrok 窗口要一直保持运行。
+
+#### 分镜图 - 角色一致性强度
+
+在 Web 工作台的「分镜图生成」面板有一个滑杆，控制分镜图生成时参考图的影响程度：
+
+- **拉高（接近 1）** → 参考图影响强，角色更一致，但构图可能受限
+- **拉低（接近 0）** → 文字描述影响强，构图更自由，但角色可能不像
+- **推荐值：0.3~0.7**，视参考图质量和效果调整
+
+如果你配好了 `PUBLIC_ASSET_BASE_URL` 但角色还是不像，可以先检查 ngrok 地址是否仍然有效。
+
+#### 使用 Ark 接口
 
 ```env
 CHARACTER_IMAGE_PROVIDER=ark
