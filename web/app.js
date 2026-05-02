@@ -424,6 +424,7 @@ function renderCharacters(project) {
       <textarea data-character-description="${character.id}" rows="5" placeholder="角色描述">${escapeHtml(character.description || "")}</textarea>
       <div class="inline-actions">
         <button type="button" class="ghost" data-character-upload-trigger="${character.id}">上传角色图</button>
+        ${character.image_url ? `<button type="button" class="ghost" data-character-three-view="${character.id}">生成三视图</button>` : ""}
         <button type="button" class="ghost" data-character-assist="${character.id}">AI 辅助</button>
         <button type="button" class="ghost" data-character-save="${character.id}">保存角色</button>
         <button type="button" class="ghost danger" data-character-delete="${character.id}">删除角色</button>
@@ -465,6 +466,20 @@ function renderCharacters(project) {
     });
   });
 
+  document.querySelectorAll("[data-character-three-view]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      const originalText = button.textContent;
+      button.textContent = "生成中…";
+      try {
+        await generateThreeView(button.dataset.characterThreeView);
+      } finally {
+        button.disabled = false;
+        button.textContent = originalText;
+      }
+    });
+  });
+
   bindPreviewImages();
 }
 
@@ -487,7 +502,8 @@ function renderSceneImages(project) {
       <h3>场景 ${scene.scene_number}</h3>
       <p class="muted small">${escapeHtml(scene.description || "")}</p>
       <div class="inline-actions">
-        <button type="button" class="ghost danger" data-scene-image-delete="${scene.scene_number}">删除分镜图</button>
+        <button type="button" class="ghost" data-scene-image-regenerate="${scene.scene_number}">${scene.scene_image_url ? "重新生成" : "生成"}</button>
+        <button type="button" class="ghost danger" data-scene-image-delete="${scene.scene_number}">删除</button>
       </div>
     </div>
   `).join("");
@@ -495,6 +511,12 @@ function renderSceneImages(project) {
   document.querySelectorAll("[data-scene-image-delete]").forEach((button) => {
     button.addEventListener("click", async () => {
       await deleteSceneImage(Number(button.dataset.sceneImageDelete));
+    });
+  });
+
+  document.querySelectorAll("[data-scene-image-regenerate]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      await regenerateSceneImage(Number(button.dataset.sceneImageRegenerate));
     });
   });
 
@@ -774,6 +796,18 @@ async function deleteCharacter(characterId) {
   await refreshProjects(project.id);
 }
 
+async function generateThreeView(characterId) {
+  const project = selectedProject();
+  if (!project) return alert("请先选择项目");
+
+  el.pipelineStatus.textContent = "正在生成三视图...";
+  const result = await runAction(() => request(`/api/projects/${project.id}/characters/${characterId}/three-view`, {
+    method: "POST",
+  }), "生成三视图失败");
+  if (!result) return;
+  await refreshProjects(project.id);
+}
+
 async function generateStoryboard() {
   const project = selectedProject();
   if (!project) return alert("请先选择项目");
@@ -788,6 +822,9 @@ async function generateStoryboard() {
   }), "生成分镜稿失败");
   if (!result) return;
   await refreshProjects(project.id);
+
+  // 分镜稿生成后自动提取角色并生成角色图
+  await generateCharacters();
 }
 
 async function createManualStoryboard() {
@@ -958,6 +995,21 @@ async function deleteSceneImage(sceneNumber) {
   const result = await runAction(() => request(`/api/projects/${project.id}/scene-images/${sceneNumber}`, {
     method: "DELETE",
   }), "删除分镜图失败");
+  if (!result) return;
+  await refreshProjects(project.id);
+}
+
+async function regenerateSceneImage(sceneNumber) {
+  const project = selectedProject();
+  if (!project) return alert("请先选择项目");
+
+  const formData = new FormData();
+  formData.set("reference_scale", String(getSceneReferenceScale()));
+  el.pipelineStatus.textContent = `正在生成场景 ${sceneNumber} 的分镜图...`;
+  const result = await runAction(() => request(`/api/projects/${project.id}/scene-images/${sceneNumber}/generate`, {
+    method: "POST",
+    body: formData,
+  }), `生成场景 ${sceneNumber} 分镜图失败`);
   if (!result) return;
   await refreshProjects(project.id);
 }

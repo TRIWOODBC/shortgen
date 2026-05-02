@@ -316,7 +316,9 @@ class ImageGenerator:
         }
         if image_urls:
             form["image_urls"] = image_urls
-            form["scale"] = scale
+            # 滑块输出 [0,1]（0=最偏参考图），即梦 API 需要 [1,100] 整数（1=最偏参考图）
+            api_scale = max(1, min(100, round(scale * 99 + 1)))
+            form["scale"] = api_scale
 
         loop = asyncio.get_event_loop()
         resp = await loop.run_in_executor(
@@ -741,27 +743,22 @@ class ImageGenerator:
             scene_reference_images.insert(0, reference_image)
 
         if scene_reference_images:
-            try:
-                if len(scene_reference_images) == 1:
-                    generated = await self.generate_image_with_reference(
-                        prompt=prompt,
-                        reference_image=scene_reference_images[0],
-                        strength=reference_strength,
-                    )
-                else:
-                    generated = await self.generate_image_with_references(
-                        prompt=prompt,
-                        reference_images=scene_reference_images,
-                        strength=reference_strength,
-                    )
-                generated_path = Path(generated)
-                if generated_path != output_path:
-                    output_path.write_bytes(generated_path.read_bytes())
-                return str(output_path)
-            except Exception as exc:
-                prompt = (
-                    f"{prompt}. Reference-image edit fallback reason: {str(exc)[:180]}"
+            if len(scene_reference_images) == 1:
+                generated = await self.generate_image_with_reference(
+                    prompt=prompt,
+                    reference_image=scene_reference_images[0],
+                    strength=reference_strength,
                 )
+            else:
+                generated = await self.generate_image_with_references(
+                    prompt=prompt,
+                    reference_images=scene_reference_images,
+                    strength=reference_strength,
+                )
+            generated_path = Path(generated)
+            if generated_path != output_path:
+                output_path.write_bytes(generated_path.read_bytes())
+            return str(output_path)
 
         scene_prompt = (
             f"{prompt}, cinematic storyboard frame, realistic film still, ultra detailed"

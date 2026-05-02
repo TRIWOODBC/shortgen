@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import shutil
 from pathlib import Path
@@ -12,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from main import setup_directories
 from src.character_manager import CharacterManager
+from src.image_gen import ImageGenerator
 from src.scene_image_gen import SceneImageGenerator
 from src.video_gen import VideoGenerator
 from src.storyboard import StoryboardGenerator
@@ -506,6 +508,60 @@ async def api_upload_character_image(
     return _summary_with_web_assets(project_id)
 
 
+THREE_VIEW_PROMPT = (
+    "character turnaround reference sheet: the same single person repeated three times in three different views. "
+    "Left: front view facing camera. Middle: side profile view facing left. "
+    "Right: back view from behind. IMPORTANT: this is ONE person shown three times, NOT three different people. "
+    "The face must look exactly like the reference photo, same face shape eyes nose and mouth. "
+    "The hairstyle and clothing must be identical in all three views. "
+    "Each view shows the full body from head to feet including hands. "
+    "Clean studio background, high detail, no text labels, no watermark"
+)
+
+
+@app.post("/api/projects/{project_id}/characters/{character_id}/three-view")
+async def api_generate_three_view(project_id: str, character_id: str) -> dict[str, Any]:
+    storyboard = load_storyboard(project_id)
+    if not storyboard:
+        raise HTTPException(status_code=400, detail="项目没有分镜稿")
+
+    character = next((c for c in storyboard.characters if c.id == character_id), None)
+    if not character:
+        raise HTTPException(status_code=404, detail=f"角色 {character_id} 不存在")
+    if not character.image_path:
+        raise HTTPException(status_code=400, detail="请先上传角色图")
+
+    set_project_environment(project_id)
+    setup_directories()
+
+    # 始终用原始上传图做参考，而不是之前生成的三视图
+    original_upload = get_project_root(project_id) / "characters" / f"{character_id}.png"
+    ref_image = str(original_upload) if original_upload.exists() else character.image_path
+
+    gen = ImageGenerator()
+    last_error: Exception | None = None
+    for attempt in range(3):
+        try:
+            result_path = await gen.generate_image_with_reference(
+                prompt=THREE_VIEW_PROMPT,
+                reference_image=ref_image,
+                strength=0.05,
+            )
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            if attempt < 2:
+                await asyncio.sleep(5)
+
+    if last_error:
+        raise HTTPException(status_code=400, detail=f"三视图生成失败: {last_error}")
+
+    character.image_path = result_path
+    StoryboardGenerator().save(storyboard, project_id)
+    return _summary_with_web_assets(project_id)
+
+
 @app.post("/api/projects/{project_id}/characters/manual")
 async def api_add_manual_character(project_id: str, payload: ManualCharacterRequest) -> dict[str, Any]:
     ensure_project_dirs(project_id)
@@ -712,6 +768,54 @@ async def api_delete_scene_image(project_id: str, scene_number: int) -> dict[str
         raise HTTPException(status_code=404, detail="场景不存在")
 
     set_project_environment(project_id)
+    StoryboardGenerator().save(storyboard, project_id)
+    return _summary_with_web_assets(project_id)
+
+
+@app.post("/api/projects/{project_id}/scene-images/{scene_number}/generate")
+async def api_regenerate_scene_image(
+    project_id: str,
+    scene_number: int,
+    reference_scale: float = Form(default=0.3),
+) -> dict[str, Any]:
+    storyboard = load_storyboard(project_id)
+    if not storyboard:
+        raise HTTPException(status_code=400, detail="请先生成或导入分镜稿")
+
+    scene = next((s for s in storyboard.scenes if s.scene_number == scene_number), None)
+    if not scene:
+        raise HTTPException(status_code=404, detail=f"场景 {scene_number} 不存在")
+
+    reference_scale = max(0.0, min(1.0, reference_scale))
+
+    set_project_environment(project_id)
+    setup_directories()
+    storyboard = _ensure_scene_character_ids(storyboard)
+
+    character_map = {c.id: c for c in storyboard.characters}
+    generator = SceneImageGenerator()
+    result = await generator.generate_for_scene(
+        scene=scene,
+        character_map=character_map,
+        output_name=project_id,
+        reference_strength=reference_scale,
+        regenerate=True,
+    )
+
+    if not result.status.startswith("success"):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "分镜图生成失败",
+                "results": [{
+                    "scene_number": result.scene_number,
+                    "status": result.status,
+                    "error_message": result.error_message,
+                }],
+            },
+        )
+
+    scene.scene_image_path = result.image_path
     StoryboardGenerator().save(storyboard, project_id)
     return _summary_with_web_assets(project_id)
 
